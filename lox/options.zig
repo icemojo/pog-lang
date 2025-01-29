@@ -7,7 +7,8 @@ const Options = struct {
     repl_start: bool,
 };
 
-pub fn parseOptions() Options {
+pub fn parseOptions() !Options {
+    const stdout = std.io.getStdOut().writer();
     const eql = std.mem.eql;
     const pa = std.heap.page_allocator;
 
@@ -21,6 +22,7 @@ pub fn parseOptions() Options {
         .tokenize_only = false,
         .repl_start = false,
     };
+    var unknowns = std.ArrayList([]u8).init(pa);
     for (args[1..]) |arg| {
         if (eql(u8, arg, "-v") or eql(u8, arg, "--verbose")) {
             options.verbose = true;
@@ -38,6 +40,14 @@ pub fn parseOptions() Options {
             options.repl_start = true;
             continue;
         }
+        try unknowns.append(arg);
+    }
+    if (unknowns.items.len > 0) {
+        try stdout.writeAll("Unknown list of command line arguments:");
+        for (unknowns.items) |arg| {
+            try stdout.print(" {s}", .{arg});
+        }
+        try stdout.writeAll("\n");
     }
     return options;
 }

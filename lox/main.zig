@@ -6,7 +6,7 @@ pub fn main() !void {
     try stdout.writeAll("Lox interpreter in Zig\n");
     try stdout.writeAll("(Verbose mode -v turned on during development)\n");
 
-    var opt = options.parseOptions();
+    var opt = try options.parseOptions();
     opt.verbose = true;
     try stdout.print("Options: {}\n", .{opt});
 }
