@@ -1,12 +1,24 @@
 const std = @import("std");
-const options = @import("options.zig");
+const debug = @import("std").debug;
+const log = @import("std").log;
 
-pub fn main() !void {
-    const stdout = std.io.getStdOut().writer();
-    try stdout.writeAll("Lox interpreter in Zig\n");
-    try stdout.writeAll("(Verbose mode -v turned on during development)\n");
+const opt = @import("options.zig");
 
-    var opt = try options.parseOptions();
-    opt.verbose = true;
-    try stdout.print("Options: {}\n", .{opt});
+pub fn main() void {
+    debug.print("Lox interpreter in Zig\n", .{});
+    debug.print("(Verbose mode -v turned on during development)\n", .{});
+
+    var options = opt.parseOptions();
+    options.verbose = true;
+
+    if (options.repl_start) {
+        debug.print("WIP: Will initiate the repl...\n", .{});
+    } else {
+        runFile(&options);
+    }
+}
+
+fn runFile(options: *opt.Options) void {
+    _ = options;
+    debug.print("TODO(yemon): WIP on the runFile(..) function on the given script\n", .{});
 }

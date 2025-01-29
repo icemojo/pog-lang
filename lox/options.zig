@@ -1,14 +1,14 @@
 const std = @import("std");
+const debug = @import("std").debug;
 
-const Options = struct {
+pub const Options = struct {
     verbose: bool,
     show_help: bool,
     tokenize_only: bool,
     repl_start: bool,
 };
 
-pub fn parseOptions() !Options {
-    const stdout = std.io.getStdOut().writer();
+pub fn parseOptions() Options {
     const eql = std.mem.eql;
     const pa = std.heap.page_allocator;
 
@@ -40,14 +40,14 @@ pub fn parseOptions() !Options {
             options.repl_start = true;
             continue;
         }
-        try unknowns.append(arg);
+        unknowns.append(arg) catch continue;
     }
     if (unknowns.items.len > 0) {
-        try stdout.writeAll("Unknown list of command line arguments:");
+        debug.print("Unknown list of command line arguments:", .{});
         for (unknowns.items) |arg| {
-            try stdout.print(" {s}", .{arg});
+            debug.print(" {s}", .{arg});
         }
-        try stdout.writeAll("\n");
+        debug.print("\n", .{});
     }
     return options;
 }
