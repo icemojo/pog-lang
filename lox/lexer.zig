@@ -269,7 +269,7 @@ pub const Scanner = struct {
         // TODO(yemon): only tokenize the literal number as a string for the time being
         // might be better if I can parse them into their own specific types later on
         // (double, int64, etc)
-        const literal = self.source[self.start..self.start];
+        const literal = self.source[self.start..self.current];
         return self.tokens.append(.{
             .token_type = .Number,
             .lexeme = null,
