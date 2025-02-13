@@ -1,6 +1,5 @@
 const std = @import("std");
 const debug = @import("std").debug;
-const log = @import("std").log;
 const Allocator = @import("std").mem.Allocator;
 
 const opt = @import("options.zig");
@@ -26,9 +25,7 @@ const Repl = struct {
     has_errors: bool,
     should_quit: bool,
 
-    const Self = @This();
-
-    fn start(self: *Self, allocator: Allocator, options: *const opt.Options) void {
+    fn start(self: *Repl, allocator: Allocator, options: *const opt.Options) void {
         const stdin = std.io.getStdIn().reader();
 
         debug.print("Lox interpreter in Zig\n", .{});
@@ -62,7 +59,11 @@ fn run(allocator: Allocator, source: []const u8, options: *const opt.Options) vo
     var scanner = lexer.Scanner.new(allocator, source);
     scanner.startScanning();
 
-    debug.print("Scanner state after scanning the source; start: {}, current: {}, line: {}\n", .{ scanner.start, scanner.current, scanner.line });
+    debug.print("Scanner state after scanning the source; start: {}, current: {}, line: {}\n", .{ 
+        scanner.start, 
+        scanner.current, 
+        scanner.line 
+    });
     if (options.verbose) {
         for (scanner.tokens.items) |token| {
             debug.print("- {}\n", .{token});

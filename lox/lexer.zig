@@ -77,7 +77,13 @@ pub const Scanner = struct {
     tokens: std.ArrayList(Token),
 
     pub fn new(allocator: Allocator, source: ConstString) Scanner {
-        return .{ .source = source, .start = 0, .current = 0, .line = 1, .tokens = std.ArrayList(Token).init(allocator) };
+        return .{
+            .source = source,
+            .start = 0,
+            .current = 0,
+            .line = 1,
+            .tokens = std.ArrayList(Token).init(allocator),
+        };
     }
 
     pub fn startScanning(self: *Scanner) void {
@@ -227,7 +233,7 @@ pub const Scanner = struct {
         _ = self.advance();
 
         // trim/ignore the start and end double quotes
-        const literal = self.source[self.start + 1 .. self.current - 1];
+        const literal = self.source[self.start+1 .. self.current-1];
         return self.tokens.append(.{
             .token_type = .String,
             .lexeme = null,
@@ -269,7 +275,7 @@ pub const Scanner = struct {
         // TODO(yemon): only tokenize the literal number as a string for the time being
         // might be better if I can parse them into their own specific types later on
         // (double, int64, etc)
-        const literal = self.source[self.start..self.current];
+        const literal = self.source[self.start .. self.current];
         return self.tokens.append(.{
             .token_type = .Number,
             .lexeme = null,
@@ -291,7 +297,7 @@ pub const Scanner = struct {
         // slicing from the '.' character until the end of numbers
         // NOTE(yemon): The parser need an extra step to make sure that
         // the literal is properly treated (prefixed) with '0.'
-        const fractLit = self.source[self.start..self.current];
+        const fractLit = self.source[self.start .. self.current];
         return self.tokens.append(.{
             .token_type = .NumberFractional,
             .lexeme = null,
@@ -311,7 +317,7 @@ pub const Scanner = struct {
             }
         }
 
-        const literal = self.source[self.start..self.current];
+        const literal = self.source[self.start .. self.current];
         if (checkKeyword(literal)) |keyword| {
             return self.tokens.append(.{
                 .token_type = keyword,
@@ -344,7 +350,7 @@ pub const Scanner = struct {
     }
 
     fn peekNext(self: *const Scanner) ?u8 {
-        if (self.isEnd() or self.current + 1 >= self.source.len) {
+        if (self.isEnd() or self.current+1 >= self.source.len) {
             return null;
         } else {
             return self.source[self.current];
