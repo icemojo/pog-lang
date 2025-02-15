@@ -56,17 +56,16 @@ fn runFile(options: *const opt.Options) void {
 }
 
 fn run(allocator: Allocator, source: []const u8, options: *const opt.Options) void {
-    var scanner = lexer.Scanner.new(allocator, source);
+    var scanner = lexer.Scanner.new(allocator, source, options.verbose);
     scanner.startScanning();
 
-    debug.print("Scanner state after scanning the source; start: {}, current: {}, line: {}\n", .{ 
-        scanner.start, 
-        scanner.current, 
-        scanner.line 
-    });
     if (options.verbose) {
         for (scanner.tokens.items) |token| {
-            debug.print("- {}\n", .{token});
+            token.print();
         }
     }
+}
+
+fn reportError(line: u32, where: []const u8, message: []const u8) void {
+    debug.print("[{}] ERR {s}: {s}\n", .{ line, where, message });
 }

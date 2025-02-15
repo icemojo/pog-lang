@@ -59,38 +59,48 @@ const TokenType = enum {
     Eof,
 };
 
-const String = []u8;
-const ConstString = []const u8;
-
 const Token = struct {
     token_type: TokenType,
-    lexeme: ?ConstString,
-    literal: ?ConstString,
+    lexeme: ?[]const u8,
+    literal: ?[]const u8,
     line: u32,
+
+    pub fn print(self: *const Token) void {
+        debug.print("[{}] Token ({}", .{ self.line, self.token_type });
+        if (self.lexeme) |lexeme| {
+            debug.print(", {s}", .{ lexeme });
+        }
+        if (self.literal) |literal| {
+            debug.print(", \"{s}\"", .{ literal });
+        }
+        debug.print(")\n", .{});
+    }
 };
 
 pub const Scanner = struct {
-    source: ConstString,
+    source: []const u8,
     start: u32,
     current: u32,
     line: u32,
     tokens: std.ArrayList(Token),
+    verbose: bool,
 
-    pub fn new(allocator: Allocator, source: ConstString) Scanner {
+    pub fn new(allocator: Allocator, source: []const u8, verbose: bool) Scanner {
         return .{
             .source = source,
             .start = 0,
             .current = 0,
             .line = 1,
             .tokens = std.ArrayList(Token).init(allocator),
+            .verbose = verbose,
         };
     }
 
     pub fn startScanning(self: *Scanner) void {
         while (!self.isEnd()) {
-            self.start = self.current;
             self.scanToken() catch |err| {
-                debug.print("ERROR: {}\n", .{err});
+                // NOTE(yemon): should I not use the `reportError` defined in main.zig?
+                self.debugPrint("Error at [{}]: {}\n", .{ self.current, err });
                 continue;
             };
         }
@@ -98,8 +108,11 @@ pub const Scanner = struct {
     }
 
     fn scanToken(self: *Scanner) !void {
-        if (self.advance()) |next_ch| {
-            switch (next_ch) {
+        self.start = self.current;
+        // self.debugPrint(">> {}", .{ self.current });
+        if (self.advance()) |current_ch| {
+            // self.debugPrint("> '{c}'\n", .{ current_ch });
+            switch (current_ch) {
                 '(' => {
                     self.addNonLexemeToken(.LeftParen);
                 },
@@ -124,6 +137,9 @@ pub const Scanner = struct {
                 '*' => {
                     self.addNonLexemeToken(.Star);
                 },
+                ';' => {
+                    self.addNonLexemeToken(.Semicolon);
+                },
 
                 '.' => {
                     if (self.peek()) |peek_ch| {
@@ -136,56 +152,28 @@ pub const Scanner = struct {
                 },
 
                 '!' => {
-                    try self.tokens.append(.{
-                        .token_type = if (self.matchNext('=')) .BangEqual else .Bang,
-                        .lexeme = null,
-                        .literal = null,
-                        .line = self.line,
-                    });
-                    _ = self.advance();
+                    self.addNonLexemeToken(if (self.advanceIfMatched('=')) .BangEqual else .Bang);
                 },
                 '=' => {
-                    try self.tokens.append(.{
-                        .token_type = if (self.matchNext('=')) .EqualEqual else .Equal,
-                        .lexeme = null,
-                        .literal = null,
-                        .line = self.line,
-                    });
-                    _ = self.advance();
+                    self.addNonLexemeToken(if (self.advanceIfMatched('=')) .EqualEqual else .Equal);
                 },
                 '<' => {
-                    try self.tokens.append(.{
-                        .token_type = if (self.matchNext('=')) .LessEqual else .Equal,
-                        .lexeme = null,
-                        .literal = null,
-                        .line = self.line,
-                    });
-                    _ = self.advance();
+                    self.addNonLexemeToken(if (self.advanceIfMatched('=')) .LessEqual else .Less);
                 },
                 '>' => {
-                    try self.tokens.append(.{
-                        .token_type = if (self.matchNext('=')) .GreaterEqual else .Equal,
-                        .lexeme = null,
-                        .literal = null,
-                        .line = self.line,
-                    });
+                    self.addNonLexemeToken(if (self.advanceIfMatched('=')) .GreaterEqual else .Greater);
                 },
 
                 '/' => {
-                    if (self.matchNext('/')) {
+                    if (self.advanceIfMatched('/')) {
                         while (self.peek()) |peek_ch| {
-                            if (self.isEnd() or isEOL(peek_ch)) {
+                            if (isEOL(peek_ch) or self.isEnd()) {
                                 break;
                             }
                             _ = self.advance();
                         }
                     } else {
-                        try self.tokens.append(.{
-                            .token_type = .Slash,
-                            .lexeme = null,
-                            .literal = null,
-                            .line = self.line,
-                        });
+                        self.addNonLexemeToken(.Slash);
                     }
                 },
 
@@ -197,14 +185,14 @@ pub const Scanner = struct {
                     // ignore general whitespaces
                     return;
                 },
-                '\n' => {
+                '\n', '\r' => {
                     self.line += 1;
                 },
 
                 else => {
-                    if (isNumeric(next_ch)) {
+                    if (isNumeric(current_ch)) {
                         try self.tokenizeNumber();
-                    } else if (ascii.isAlphabetic(next_ch)) {
+                    } else if (ascii.isAlphabetic(current_ch)) {
                         try self.tokenizeIdentifier();
                     } else {
                         // TODO(yemon): is this error report a correct edge case?
@@ -218,23 +206,27 @@ pub const Scanner = struct {
     }
 
     fn tokenizeString(self: *Scanner) !void {
-        var ch = self.peek();
-        while (ch != '"' or self.isEnd()) : (ch = self.peek()) {
-            // supporting the multi-line literals
-            if (ch == '\n' or ch == '\r') {
+        // NOTE(yemon): `peek()` can return null if `isEnd()` is true,
+        // and doing the `isEnd()` check again, while ignoring/unwrapping
+        // peek_ch below is... kinda contradictory
+        var peek_ch = self.peek();
+        while (peek_ch != '"' or self.isEnd()) : (peek_ch = self.peek()) {
+            // supporting the multi-line string literals
+            if (isEOL(peek_ch.?)) {
                 self.line += 1;
             }
             _ = self.advance();
         }
 
         if (self.isEnd()) {
-            return error.InvalidComposition;
+            return error.UnterminatedString;
         }
+        // the closing '"'
         _ = self.advance();
 
         // trim/ignore the start and end double quotes
         const literal = self.source[self.start+1 .. self.current-1];
-        return self.tokens.append(.{
+        try self.tokens.append(.{
             .token_type = .String,
             .lexeme = null,
             .literal = literal,
@@ -252,16 +244,17 @@ pub const Scanner = struct {
             }
         }
 
-        // detect the fractional point '.'
+        var token_type = TokenType.Number;
+
+        // detect the fractional point '.', skips it...
         var peek_ch = self.peek();
         const next_ch = self.peekNext();
         if (peek_ch != null and next_ch != null) {
-            // consume the '.' token
             if (peek_ch == '.' and isNumeric(next_ch.?)) {
                 _ = self.advance();
             }
 
-            // consume the rest of the digit characters
+            // ...and consume the rest of the digit characters
             peek_ch = self.peek();
             while (peek_ch != null) : (peek_ch = self.peek()) {
                 if (isNumeric(peek_ch.?)) {
@@ -270,6 +263,16 @@ pub const Scanner = struct {
                     break;
                 }
             }
+            // NOTE(yemon): I don't quite get why below constructs won't work.
+            // Maybe I'm trying to shoehorn the 'while' statements too much as
+            // the traditional 3-segments 'for' loops. I mean, the first, I get.
+            // It'll be hard to identify which value to capture from the binary 
+            // statement of while-condition. But I do feel like the
+            // second form with pointer captures should work naturally though.
+            // while (self.peek() and isNumeric(char.*)) |*char| : (char.* = self.peek()) { ... }
+            // while (self.peek()) |char| : (char = self.peek()) { ... }
+
+            token_type = .NumberFractional;
         }
 
         // TODO(yemon): only tokenize the literal number as a string for the time being
@@ -277,7 +280,7 @@ pub const Scanner = struct {
         // (double, int64, etc)
         const literal = self.source[self.start .. self.current];
         return self.tokens.append(.{
-            .token_type = .Number,
+            .token_type = token_type,
             .lexeme = null,
             .literal = literal,
             .line = self.line,
@@ -286,7 +289,7 @@ pub const Scanner = struct {
 
     fn tokenizeNumberZeroFractional(self: *Scanner) !void {
         // consume the rest of the numeric characters being '.'
-        while (self.peek()) |peek_ch| { // : (peek_ch = self.peek()) {
+        while (self.peek()) |peek_ch| {
             if (isNumeric(peek_ch)) {
                 _ = self.advance();
             } else {
@@ -308,7 +311,6 @@ pub const Scanner = struct {
 
     fn tokenizeIdentifier(self: *Scanner) !void {
         var peek_ch = self.peek();
-        //while (peek_ch != null and self.isEnd()) : (peek_ch = self.peek()) {
         while (peek_ch != null or !self.isEnd()) : (peek_ch = self.peek()) {
             if (ascii.isAlphanumeric(peek_ch.?)) {
                 _ = self.advance();
@@ -336,6 +338,9 @@ pub const Scanner = struct {
     }
 
     fn advance(self: *Scanner) ?u8 {
+        if (self.isEnd()) {
+            return null;
+        }
         const ch = self.source[self.current];
         self.current += 1;
         return ch;
@@ -353,15 +358,19 @@ pub const Scanner = struct {
         if (self.isEnd() or self.current+1 >= self.source.len) {
             return null;
         } else {
-            return self.source[self.current];
+            return self.source[self.current+1];
         }
     }
 
-    fn matchNext(self: *const Scanner, expected: u8) bool {
+    fn advanceIfMatched(self: *Scanner, expected: u8) bool {
         if (self.isEnd()) {
             return false;
         }
-        return self.source[self.current] == expected;
+        if (self.source[self.current] != expected) {
+            return false;
+        }
+        self.current += 1;
+        return true;
     }
 
     fn addNonLexemeToken(self: *Scanner, token_type: TokenType) void {
@@ -375,6 +384,13 @@ pub const Scanner = struct {
 
     fn isEnd(self: *const Scanner) bool {
         return self.current >= self.source.len;
+    }
+
+    fn debugPrint(self: *const Scanner, comptime fmt: []const u8, args: anytype) void {
+        if (!self.verbose) {
+            return;
+        }
+        debug.print(fmt, args);
     }
 };
 
