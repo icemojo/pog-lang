@@ -6,16 +6,13 @@ const opt = @import("options.zig");
 const lexer = @import("lexer.zig");
 
 pub fn main() void {
-    var options = opt.parseOptions();
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var options = opt.parseOptions(gpa.allocator());
     options.verbose = true;
 
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var repl = Repl{
-        .has_errors = false,
-        .should_quit = false,
-    };
+    var repl = Repl.init(gpa.allocator());
     if (options.repl_start) {
-        repl.start(gpa.allocator(), &options);
+        repl.start(&options);
     } else {
         runFile(&options);
     }
@@ -24,28 +21,37 @@ pub fn main() void {
 const Repl = struct {
     has_errors: bool,
     should_quit: bool,
+    allocator: Allocator,
 
-    fn start(self: *Repl, allocator: Allocator, options: *const opt.Options) void {
+    fn init(allocator: Allocator) Repl {
+        return .{
+            .has_errors = false,
+            .should_quit = false,
+            .allocator = allocator,
+        };
+    }
+
+    fn start(self: *Repl, options: *const opt.Options) void {
         const stdin = std.io.getStdIn().reader();
 
         debug.print("Lox interpreter in Zig\n", .{});
         debug.print("(Use -h to print out the available options)\n", .{});
         debug.print("(Verbose mode -v turned on during development)\n", .{});
 
-        var input_buffer: []u8 = undefined;
         const buffer_size = 1024;
+        var input_buffer: []u8 = undefined;
         while (!self.should_quit) {
             debug.print(">> ", .{});
-            input_buffer = stdin.readUntilDelimiterAlloc(allocator, '\n', buffer_size) catch "";
+            input_buffer = stdin.readUntilDelimiterAlloc(self.allocator, '\n', buffer_size) catch "";
             defer input_buffer = "";
 
             const input = std.mem.trim(u8, input_buffer, " \r");
             if (input.len == 0) {
                 continue;
             } else {
-                run(allocator, input, options);
+                run(self.allocator, input, options);
             }
-            defer allocator.free(input_buffer);
+            defer self.allocator.free(input_buffer);
         }
     }
 };
@@ -56,7 +62,7 @@ fn runFile(options: *const opt.Options) void {
 }
 
 fn run(allocator: Allocator, source: []const u8, options: *const opt.Options) void {
-    var scanner = lexer.Scanner.new(allocator, source, options.verbose);
+    var scanner = lexer.Scanner.init(allocator, source, options.verbose);
     scanner.startScanning();
 
     if (options.verbose) {

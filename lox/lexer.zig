@@ -85,7 +85,7 @@ pub const Scanner = struct {
     tokens: std.ArrayList(Token),
     verbose: bool,
 
-    pub fn new(allocator: Allocator, source: []const u8, verbose: bool) Scanner {
+    pub fn init(allocator: Allocator, source: []const u8, verbose: bool) Scanner {
         return .{
             .source = source,
             .start = 0,
@@ -100,7 +100,7 @@ pub const Scanner = struct {
         while (!self.isEnd()) {
             self.scanToken() catch |err| {
                 // NOTE(yemon): should I not use the `reportError` defined in main.zig?
-                self.debugPrint("Error at [{}]: {}\n", .{ self.current, err });
+                debugPrint(self, "Error at [{}]: {}\n", .{ self.current, err });
                 continue;
             };
         }
@@ -109,9 +109,9 @@ pub const Scanner = struct {
 
     fn scanToken(self: *Scanner) !void {
         self.start = self.current;
-        // self.debugPrint(">> {}", .{ self.current });
+        // debugPrint(self, ">> {}", .{ self.current });
         if (self.advance()) |current_ch| {
-            // self.debugPrint("> '{c}'\n", .{ current_ch });
+            // debugPrint(self, > '{c}'\n", .{ current_ch });
             switch (current_ch) {
                 '(' => {
                     self.addNonLexemeToken(.LeftParen);
@@ -300,11 +300,11 @@ pub const Scanner = struct {
         // slicing from the '.' character until the end of numbers
         // NOTE(yemon): The parser need an extra step to make sure that
         // the literal is properly treated (prefixed) with '0.'
-        const fractLit = self.source[self.start .. self.current];
+        const literal = self.source[self.start .. self.current];
         return self.tokens.append(.{
             .token_type = .NumberFractional,
             .lexeme = null,
-            .literal = fractLit,
+            .literal = literal,
             .line = self.line,
         });
     }
@@ -385,14 +385,14 @@ pub const Scanner = struct {
     fn isEnd(self: *const Scanner) bool {
         return self.current >= self.source.len;
     }
-
-    fn debugPrint(self: *const Scanner, comptime fmt: []const u8, args: anytype) void {
-        if (!self.verbose) {
-            return;
-        }
-        debug.print(fmt, args);
-    }
 };
+
+fn debugPrint(self: *const Scanner, comptime fmt: []const u8, args: anytype) void {
+    if (!self.verbose) {
+        return;
+    }
+    debug.print(fmt, args);
+}
 
 fn checkKeyword(literal: []const u8) ?TokenType {
     const eql = std.mem.eql;
