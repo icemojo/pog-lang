@@ -59,13 +59,13 @@ const TokenType = enum {
     Eof,
 };
 
-const Token = struct {
+pub const Token = struct {
     token_type: TokenType,
     lexeme: ?[]const u8,
     literal: ?[]const u8,
     line: u32,
 
-    pub fn print(self: *const Token) void {
+    pub fn display(self: *const Token) void {
         debug.print("[{}] Token ({}", .{ self.line, self.token_type });
         if (self.lexeme) |lexeme| {
             debug.print(", {s}", .{ lexeme });
@@ -74,6 +74,16 @@ const Token = struct {
             debug.print(", \"{s}\"", .{ literal });
         }
         debug.print(")\n", .{});
+    }
+
+    pub fn toString(self: *const Token) []const u8 {
+        return if (self.lexeme) |lexeme| blk: {
+            if (!std.mem.eql(u8, lexeme, "")) {
+                break :blk lexeme;
+            } else {
+                break :blk @tagName(self.token_type);
+            }
+        } else @tagName(self.token_type);
     }
 };
 
@@ -225,7 +235,7 @@ pub const Scanner = struct {
         _ = self.advance();
 
         // trim/ignore the start and end double quotes
-        const literal = self.source[self.start+1 .. self.current-1];
+        const literal = self.source[self.start+1..self.current-1];
         try self.tokens.append(.{
             .token_type = .String,
             .lexeme = null,
@@ -278,7 +288,7 @@ pub const Scanner = struct {
         // TODO(yemon): only tokenize the literal number as a string for the time being
         // might be better if I can parse them into their own specific types later on
         // (double, int64, etc)
-        const literal = self.source[self.start .. self.current];
+        const literal = self.source[self.start..self.current];
         return self.tokens.append(.{
             .token_type = token_type,
             .lexeme = null,
@@ -300,7 +310,7 @@ pub const Scanner = struct {
         // slicing from the '.' character until the end of numbers
         // NOTE(yemon): The parser need an extra step to make sure that
         // the literal is properly treated (prefixed) with '0.'
-        const literal = self.source[self.start .. self.current];
+        const literal = self.source[self.start..self.current];
         return self.tokens.append(.{
             .token_type = .NumberFractional,
             .lexeme = null,
@@ -319,7 +329,7 @@ pub const Scanner = struct {
             }
         }
 
-        const literal = self.source[self.start .. self.current];
+        const literal = self.source[self.start..self.current];
         if (checkKeyword(literal)) |keyword| {
             return self.tokens.append(.{
                 .token_type = keyword,

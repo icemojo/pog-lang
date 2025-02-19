@@ -2,8 +2,9 @@ const std = @import("std");
 const debug = @import("std").debug;
 const Allocator = @import("std").mem.Allocator;
 
-const opt = @import("options.zig");
+const opt   = @import("options.zig");
 const lexer = @import("lexer.zig");
+const ast   = @import("ast.zig");
 
 pub fn main() void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -67,7 +68,7 @@ fn run(allocator: Allocator, source: []const u8, options: *const opt.Options) vo
 
     if (options.verbose) {
         for (scanner.tokens.items) |token| {
-            token.print();
+            token.display();
         }
     }
 }
