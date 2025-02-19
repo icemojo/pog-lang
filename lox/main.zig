@@ -1,10 +1,11 @@
-const std = @import("std");
-const debug = @import("std").debug;
+const std       = @import("std");
+const debug     = @import("std").debug;
 const Allocator = @import("std").mem.Allocator;
 
-const opt   = @import("options.zig");
-const lexer = @import("lexer.zig");
-const ast   = @import("ast.zig");
+const opt     = @import("options.zig");
+const lexer   = @import("lexer.zig");
+const ast     = @import("ast.zig");
+const Parser  = @import("parser.zig").Parser;
 
 pub fn main() void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -70,6 +71,16 @@ fn run(allocator: Allocator, source: []const u8, options: *const opt.Options) vo
         for (scanner.tokens.items) |token| {
             token.display();
         }
+    }
+
+    var parser = Parser.init(&scanner.tokens);
+    const expr = parser.parse(allocator) catch |err| {
+        debug.print("Error when parsing the expression tree: {}\n", .{ err });
+        return;
+    };
+    debug.print("AST result from the Parser:\n", .{});
+    if (!parser.has_error) {
+        expr.display(allocator, true);
     }
 }
 

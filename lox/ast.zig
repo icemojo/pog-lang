@@ -1,17 +1,58 @@
-const std = @import("std");
-const debug = @import("std").debug;
-const eql = @import("std").mem.eql;
+const std       = @import("std");
+const debug     = @import("std").debug;
+const eql       = @import("std").mem.eql;
 const Allocator = @import("std").mem.Allocator;
 
 const Token = @import("lexer.zig").Token;
 
-const Expr = union(enum) {
+pub fn createBinaryExpr(allocator: Allocator, left: *Expr, optr: Token, right: *Expr) !*Expr {
+    const expr = try allocator.create(Expr);
+    expr.* = Expr{
+        .binary = BinaryExpr{
+            .left = left,
+            .optr = optr,
+            .right = right,
+        },
+    };
+    return expr;
+}
+
+pub fn createUnaryExpr(allocator: Allocator, optr: Token, right: *Expr) !*Expr {
+    const expr = try allocator.create(Expr);
+    expr.* = Expr{
+        .unary = UnaryExpr{
+            .optr = optr,
+            .right = right,
+        },
+    };
+    return expr;
+}
+
+pub fn createGroupingExpr(allocator: Allocator, inner: *Expr) !*Expr {
+    const expr = try allocator.create(Expr);
+    expr.* = Expr{
+        .grouping = GroupingExpr{
+            .inner = inner,
+        },
+    };
+    return expr;
+}
+
+pub fn createLiteral(allocator: Allocator, value: LiteralExpr) !*Expr {
+    const expr = try allocator.create(Expr);
+    expr.* = Expr{
+        .literal = value,
+    };
+    return expr;
+}
+
+pub const Expr = union(enum) {
     binary: BinaryExpr,
     unary: UnaryExpr,
     grouping: GroupingExpr,
     literal: LiteralExpr,
 
-    fn display(self: Expr, allocator: Allocator, line_break: bool) void { 
+    pub fn display(self: Expr, allocator: Allocator, line_break: bool) void { 
         switch (self) {
             .binary => |binary| {
                 debug.print("{s}", .{ binary.string(allocator) });
@@ -55,7 +96,7 @@ const Expr = union(enum) {
     }
 };
 
-const BinaryExpr = struct {
+pub const BinaryExpr = struct {
     left:  *Expr,
     optr:  Token,
     right: *Expr,
@@ -71,7 +112,7 @@ const BinaryExpr = struct {
     }
 };
 
-const UnaryExpr = struct {
+pub const UnaryExpr = struct {
     optr:  Token,
     right: *Expr,
 
@@ -85,7 +126,7 @@ const UnaryExpr = struct {
     }
 };
 
-const GroupingExpr = struct {
+pub const GroupingExpr = struct {
     inner: *Expr,
 
     fn string(self: *const GroupingExpr, allocator: Allocator) []const u8 {
@@ -96,11 +137,12 @@ const GroupingExpr = struct {
     }
 };
 
-const LiteralExpr = union(enum) {
+pub const LiteralExpr = union(enum) {
     integer: i64,
     double:  f64,
     text:  []u8,
     boolean: bool,
+    nil: bool,
 
     fn string(self: LiteralExpr, allocator: Allocator) []const u8 {
         var str: []const u8 = undefined;
@@ -124,6 +166,10 @@ const LiteralExpr = union(enum) {
                 str = std.fmt.allocPrint(allocator, "{any}", .{ value }) 
                     catch "NA";
             },
+
+            .nil => {
+                str = "nil";
+            }
         }
         return str;
     }

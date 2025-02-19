@@ -1,9 +1,9 @@
-const std = @import("std");
-const debug = @import("std").debug;
-const ascii = @import("std").ascii;
+const std       = @import("std");
+const debug     = @import("std").debug;
+const ascii     = @import("std").ascii;
 const Allocator = @import("std").mem.Allocator;
 
-const TokenType = enum {
+pub const TokenType = enum {
     // single-character token
     LeftParen,
     RightParen,
@@ -259,9 +259,12 @@ pub const Scanner = struct {
         // detect the fractional point '.', skips it...
         var peek_ch = self.peek();
         const next_ch = self.peekNext();
-        if (peek_ch != null and next_ch != null) {
+        if (peek_ch != null and next_ch != null) blk: {
             if (peek_ch == '.' and isNumeric(next_ch.?)) {
                 _ = self.advance();
+                token_type = .NumberFractional;
+            } else {
+                break :blk;
             }
 
             // ...and consume the rest of the digit characters
@@ -280,9 +283,7 @@ pub const Scanner = struct {
             // statement of while-condition. But I do feel like the
             // second form with pointer captures should work naturally though.
             // while (self.peek() and isNumeric(char.*)) |*char| : (char.* = self.peek()) { ... }
-            // while (self.peek()) |char| : (char = self.peek()) { ... }
-
-            token_type = .NumberFractional;
+            // while (self.peek()) |*char| : (char.* = self.peek()) { ... }
         }
 
         // TODO(yemon): only tokenize the literal number as a string for the time being
