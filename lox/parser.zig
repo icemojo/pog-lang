@@ -6,6 +6,15 @@ const Token     = @import("lexer.zig").Token;
 const TokenType = @import("lexer.zig").TokenType;
 const ast       = @import("ast.zig");
 
+// NOTE(yemon): Inferred error sets are not compatible with
+// recursive function calls. So, Zig needs an explicit error 
+// definition with all possible errors from the call stack merged.
+const ParserError = error {
+    PrimaryNodeError,
+
+    OutOfMemory,
+};
+
 pub const Parser = struct {
     tokens: *std.ArrayList(Token),
     current: usize,
@@ -19,15 +28,15 @@ pub const Parser = struct {
         };
     }
 
-    pub fn parse(self: *Parser, allocator: Allocator) !*ast.Expr {
+    pub fn parse(self: *Parser, allocator: Allocator) ParserError!*ast.Expr {
         return self.expression(allocator);
     }
 
-    fn expression(self: *Parser, allocator: Allocator) !*ast.Expr {
+    fn expression(self: *Parser, allocator: Allocator) ParserError!*ast.Expr {
         return self.equality(allocator);
     }
 
-    fn equality(self: *Parser, allocator: Allocator) !*ast.Expr {
+    fn equality(self: *Parser, allocator: Allocator) ParserError!*ast.Expr {
         const expr = try self.comparision(allocator);
         const tokens_to_check = [_]TokenType{ .BangEqual, .EqualEqual };
         while (self.advanceIfMatchedAny(&tokens_to_check)) {
@@ -43,7 +52,7 @@ pub const Parser = struct {
         }
     }
     
-    fn comparision(self: *Parser, allocator: Allocator) !*ast.Expr {
+    fn comparision(self: *Parser, allocator: Allocator) ParserError!*ast.Expr {
         const expr = try self.term(allocator);
         const tokens_to_check = [_]TokenType{ 
             .Greater, .GreaterEqual, .Less, .LessEqual 
@@ -58,7 +67,7 @@ pub const Parser = struct {
         }
     }
 
-    fn term(self: *Parser, allocator: Allocator) !*ast.Expr {
+    fn term(self: *Parser, allocator: Allocator) ParserError!*ast.Expr {
         const expr = try self.factor(allocator);
         const tokens_to_check = [_]TokenType{ .Minus, .Plus };
         while (self.advanceIfMatchedAny(&tokens_to_check)) {
@@ -71,7 +80,7 @@ pub const Parser = struct {
         }
     }
 
-    fn factor(self: *Parser, allocator: Allocator) !*ast.Expr {
+    fn factor(self: *Parser, allocator: Allocator) ParserError!*ast.Expr {
         const expr = try self.unary(allocator);
         const tokens_to_check = [_]TokenType{ .Slash, .Star };
         while (self.advanceIfMatchedAny(&tokens_to_check)) {
@@ -84,7 +93,7 @@ pub const Parser = struct {
         }
     }
 
-    fn unary(self: *Parser, allocator: Allocator) !*ast.Expr {
+    fn unary(self: *Parser, allocator: Allocator) ParserError!*ast.Expr {
         const tokens_to_check = [_]TokenType{ .Bang, .Minus };
         if (self.advanceIfMatchedAny(&tokens_to_check)) {
             const optr = self.previous().?;
@@ -96,7 +105,7 @@ pub const Parser = struct {
         }
     }
 
-    fn primary(self: *Parser, allocator: Allocator) !*ast.Expr {
+    fn primary(self: *Parser, allocator: Allocator) ParserError!*ast.Expr {
         const token = self.peek();
 
         if (self.check(TokenType.Number)) {
@@ -156,38 +165,30 @@ pub const Parser = struct {
             return nil_lit;
         }
 
-        // if (self.check(TokenType.LeftParen)) {
-        //     _ = self.advance();
+        if (self.check(TokenType.LeftParen)) {
+            _ = self.advance();
 
-        //     // TODO(yemon): throwing out 'unable to resolve inferred error set' error right here, 
-        //     // probably because this is getting recursive, and the compiler does not know
-        //     // how deep to go anymore!
-        //     const inner_expr = try self.expression(allocator);
-        //     const group = try ast.createGroupingExpr(allocator, inner_expr);
+            const inner_expr = try self.expression(allocator);
+            const group = try ast.createGroupingExpr(allocator, inner_expr);
 
-        //     // NOTE(yemon): This just handles the error and report it in place.
-        //     // Maybe it should unwind/return over the tree until the "statement boundary" is hit somehow...
-        //     const parser_error = self.consume(TokenType.RightParen, "Expecting \')\' after the expression.");
-        //     if (parser_error.error_message) |error_message| {
-        //         self.has_error = true;
-        //         reportError(parser_error.token, error_message);
-        //     }
+            // NOTE(yemon): This just handles the error and report it in place.
+            // Maybe it should unwind/return over the tree until the "statement boundary" is hit somehow...
+            const parser_error = self.consume(TokenType.RightParen, "Expecting \')\' after the expression.");
+            if (parser_error.error_message) |error_message| {
+                self.has_error = true;
+                reportError(parser_error.token, error_message);
+            }
 
-        //     return group;
-        // }
+            return group;
+        }
 
-        // TODO(yemon): should probably return an error instead of 'nil' literal
-        const nil_lit = try ast.createLiteral(allocator, ast.LiteralExpr{
-            .nil = true,
-        });
-        return nil_lit;
+        return error.PrimaryNodeError;
     }
 
 // -----------------------------------------------------------------------------
 
     fn advanceIfMatchedAny(self: *Parser, token_types: []const TokenType) bool {
         for (token_types) |token_type| {
-            // if (self.check(token_type)) {
             if (self.isEnd()) {
                 return false;
             }

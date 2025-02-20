@@ -139,13 +139,13 @@ pub const Scanner = struct {
                     self.addNonLexemeToken(.Comma);
                 },
                 '-' => {
-                    self.addNonLexemeToken(.Minus);
+                    self.addLexemeToken(.Minus, "-");
                 },
                 '+' => {
-                    self.addNonLexemeToken(.Plus);
+                    self.addLexemeToken(.Plus, "+");
                 },
                 '*' => {
-                    self.addNonLexemeToken(.Star);
+                    self.addLexemeToken(.Star, "*");
                 },
                 ';' => {
                     self.addNonLexemeToken(.Semicolon);
@@ -162,16 +162,52 @@ pub const Scanner = struct {
                 },
 
                 '!' => {
-                    self.addNonLexemeToken(if (self.advanceIfMatched('=')) .BangEqual else .Bang);
+                    var token_type: TokenType = undefined;
+                    var lexeme: []const u8 = undefined;
+                    if (self.advanceIfMatched('=')) {
+                        token_type = .BangEqual;
+                        lexeme = "!=";
+                    } else {
+                        token_type = .Bang;
+                        lexeme = "!";
+                    }
+                    self.addLexemeToken(token_type, lexeme);
                 },
                 '=' => {
-                    self.addNonLexemeToken(if (self.advanceIfMatched('=')) .EqualEqual else .Equal);
+                    var token_type: TokenType = undefined;
+                    var lexeme: []const u8 = undefined;
+                    if (self.advanceIfMatched('=')) {
+                        token_type = .EqualEqual;
+                        lexeme = "==";
+                    } else {
+                        token_type = .Equal;
+                        lexeme = "=";
+                    }
+                    self.addLexemeToken(token_type, lexeme);
                 },
                 '<' => {
-                    self.addNonLexemeToken(if (self.advanceIfMatched('=')) .LessEqual else .Less);
+                    var token_type: TokenType = undefined;
+                    var lexeme: []const u8 = undefined;
+                    if (self.advanceIfMatched('=')) {
+                        token_type = .LessEqual;
+                        lexeme = "<=";
+                    } else {
+                        token_type = .Less;
+                        lexeme = "<";
+                    }
+                    self.addLexemeToken(token_type, lexeme);
                 },
                 '>' => {
-                    self.addNonLexemeToken(if (self.advanceIfMatched('=')) .GreaterEqual else .Greater);
+                    var token_type: TokenType = undefined;
+                    var lexeme: []const u8 = undefined;
+                    if (self.advanceIfMatched('=')) {
+                        token_type = .GreaterEqual;
+                        lexeme = ">=";
+                    } else {
+                        token_type = .Greater;
+                        lexeme = ">";
+                    }
+                    self.addLexemeToken(token_type, lexeme);
                 },
 
                 '/' => {
@@ -183,7 +219,7 @@ pub const Scanner = struct {
                             _ = self.advance();
                         }
                     } else {
-                        self.addNonLexemeToken(.Slash);
+                        self.addLexemeToken(.Slash, "/");
                     }
                 },
 
@@ -388,6 +424,15 @@ pub const Scanner = struct {
         self.tokens.append(.{
             .token_type = token_type,
             .lexeme = null,
+            .literal = null,
+            .line = self.line,
+        }) catch return;
+    }
+
+    fn addLexemeToken(self: *Scanner, token_type: TokenType, lexeme: []const u8) void {
+        self.tokens.append(.{
+            .token_type = token_type,
+            .lexeme = lexeme,
             .literal = null,
             .line = self.line,
         }) catch return;
