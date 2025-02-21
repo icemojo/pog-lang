@@ -369,9 +369,9 @@ pub const Scanner = struct {
         const literal = self.source[self.start..self.current];
         if (checkKeyword(literal)) |keyword| {
             return self.tokens.append(.{
-                .token_type = keyword,
+                .token_type = keyword.token_type,
                 .lexeme = null,
-                .literal = null,
+                .literal = keyword.lexeme,
                 .line = self.line,
             });
         } else {
@@ -450,41 +450,46 @@ fn debugPrint(self: *const Scanner, comptime fmt: []const u8, args: anytype) voi
     debug.print(fmt, args);
 }
 
-fn checkKeyword(literal: []const u8) ?TokenType {
+const Keyword = struct {
+    token_type: TokenType,
+    lexeme: []const u8,
+};
+
+pub fn checkKeyword(literal: []const u8) ?Keyword {
     const eql = std.mem.eql;
 
     var l: [32]u8 = undefined;
     const lower = ascii.lowerString(&l, literal);
     if (eql(u8, lower, "class")) {
-        return .Class;
+        return .{ .token_type = .Class, .lexeme = "class" };
     } else if (eql(u8, lower, "fun")) {
-        return .Function;
+        return .{ .token_type = .Function, .lexeme = "fun" };
     } else if (eql(u8, lower, "return")) {
-        return .Return;
+        return .{ .token_type = .Return, .lexeme = "return" };
     } else if (eql(u8, lower, "if")) {
-        return .If;
+        return .{ .token_type = .If, .lexeme = "if" };
     } else if (eql(u8, lower, "true")) {
-        return .True;
+        return .{ .token_type = .True, .lexeme = "true" };
     } else if (eql(u8, lower, "false")) {
-        return .False;
+        return .{ .token_type = .False, .lexeme = "false" };
     } else if (eql(u8, lower, "for")) {
-        return .For;
+        return .{ .token_type = .For, .lexeme = "for" };
     } else if (eql(u8, lower, "while")) {
-        return .While;
+        return .{ .token_type = .While, .lexeme = "while" };
     } else if (eql(u8, lower, "nil")) {
-        return .Nil;
+        return .{ .token_type = .Nil, .lexeme = "nil" };
     } else if (eql(u8, lower, "and")) {
-        return .And;
+        return .{ .token_type = .And, .lexeme = "and" };
     } else if (eql(u8, lower, "or")) {
-        return .Or;
+        return .{ .token_type = .Or, .lexeme = "or" };
     } else if (eql(u8, lower, "this")) {
-        return .This;
+        return .{ .token_type = .This, .lexeme = "this" };
     } else if (eql(u8, lower, "super")) {
-        return .Super;
+        return .{ .token_type = .Super, .lexeme = "super" };
     } else if (eql(u8, lower, "print")) {
-        return .Print;
+        return .{ .token_type = .Print, .lexeme = "print" };
     } else if (eql(u8, lower, "var")) {
-        return .Var;
+        return .{ .token_type = .Var, .lexeme = "var" };
     } else {
         return null;
     }

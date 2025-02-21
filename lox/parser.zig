@@ -2,6 +2,7 @@ const std       = @import("std");
 const debug     = @import("std").debug;
 const Allocator = @import("std").mem.Allocator;
 
+const lexer     = @import("lexer.zig");
 const Token     = @import("lexer.zig").Token;
 const TokenType = @import("lexer.zig").TokenType;
 const ast       = @import("ast.zig");
@@ -11,6 +12,8 @@ const ast       = @import("ast.zig");
 // definition with all possible errors from the call stack merged.
 const ParserError = error {
     PrimaryNodeError,
+    StringParsingError,
+    DunnoIdentifier,
 
     OutOfMemory,
 };
@@ -133,13 +136,10 @@ pub const Parser = struct {
         if (self.check(TokenType.String)) {
             _ = self.advance();
             if (token.literal) |literal| {
-                const string_value: []u8 = "";
-                @memcpy(string_value, literal);
-
-                const string_lit = try ast.createLiteral(allocator, ast.LiteralExpr{
-                    .text = string_value,
-                });
+                const string_lit = try ast.createStringLiteral(allocator, literal);
                 return string_lit;
+            } else {
+                return error.StringParsingError;
             }
         }
         
@@ -269,16 +269,16 @@ const ParserResult = struct {
 
 // TODO(yemon): Might need a bit more permanent place for this
 fn report(line: u32, where_message: []const u8, error_message: []const u8) void {
-    debug.print("[{}] ERROR {s}: {s}", .{ line, where_message, error_message });
+    debug.print("[{}] ERROR {s}: {s}\n", .{ line, where_message, error_message });
 }
 
 // TODO(yemon): Might need a bit more permanent place for this
 fn reportError(token: Token, message: []const u8) void {
     if (token.token_type == .Eof) {
-        report(token.line, " at end", message);
+        report(token.line, "at end", message);
     } else {
         if (token.lexeme) |lexeme| {
-            debug.print("[{}] ERROR on lexeme {s}: {s}", .{ 
+            debug.print("[{}] ERROR on lexeme {s}: {s}\n", .{ 
                 token.line, lexeme, message 
             });
         } else {

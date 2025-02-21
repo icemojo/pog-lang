@@ -46,6 +46,20 @@ pub fn createLiteral(allocator: Allocator, value: LiteralExpr) !*Expr {
     return expr;
 }
 
+pub fn createStringLiteral(allocator: Allocator, string_value: []const u8) !*Expr {
+    // NOTE(yemon): Double leakage here then the other 'create' functions...
+    const target_value = try allocator.alloc(u8, string_value.len);
+    @memcpy(target_value, string_value);
+
+    const expr = try allocator.create(Expr);
+    expr.* = Expr{
+        .literal = LiteralExpr{
+            .text = target_value,
+        },
+    };
+    return expr;
+}
+
 pub const Expr = union(enum) {
     binary: BinaryExpr,
     unary: UnaryExpr,
@@ -130,7 +144,7 @@ pub const GroupingExpr = struct {
     inner: *Expr,
 
     fn string(self: *const GroupingExpr, allocator: Allocator) []const u8 {
-        const str = std.fmt.allocPrint(allocator, "({s})", .{
+        const str = std.fmt.allocPrint(allocator, "{s}", .{
             self.inner.string(allocator),
         }) catch "(NA)";
         return str;
@@ -158,7 +172,7 @@ pub const LiteralExpr = union(enum) {
             },
 
             .text => |value| {
-                str = std.fmt.allocPrint(allocator, "{s}", .{ value }) 
+                str = std.fmt.allocPrint(allocator, "\"{s}\"", .{ value }) 
                     catch "NA";
             },
 
