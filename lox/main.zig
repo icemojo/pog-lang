@@ -2,10 +2,11 @@ const std       = @import("std");
 const debug     = @import("std").debug;
 const Allocator = @import("std").mem.Allocator;
 
-const opt     = @import("options.zig");
-const lexer   = @import("lexer.zig");
-const ast     = @import("ast.zig");
-const Parser  = @import("parser.zig").Parser;
+const opt         = @import("options.zig");
+const lexer       = @import("lexer.zig");
+const ast         = @import("ast.zig");
+const Parser      = @import("parser.zig").Parser;
+const interpreter = @import("interpreter.zig");
 
 pub fn main() void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -87,6 +88,12 @@ fn run(allocator: Allocator, source: []const u8, options: *const opt.Options) vo
     } else {
         debug.print("Parser internals seem to have some errors.\n", .{});
     }
+
+    const value = interpreter.evaluate(expr, allocator) catch |err| {
+        debug.print("Error eavluating the expression: {}\n", .{ err });
+        return;
+    };
+    _ = value;
 }
 
 fn reportError(line: u32, where: []const u8, message: []const u8) void {

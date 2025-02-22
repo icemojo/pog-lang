@@ -4,6 +4,7 @@ const eql       = @import("std").mem.eql;
 const Allocator = @import("std").mem.Allocator;
 
 const Token = @import("lexer.zig").Token;
+const Value = @import("interpreter.zig").Value;
 
 pub fn createBinaryExpr(allocator: Allocator, left: *Expr, optr: Token, right: *Expr) !*Expr {
     const expr = try allocator.create(Expr);
@@ -116,7 +117,7 @@ pub const BinaryExpr = struct {
     right: *Expr,
 
     fn string(self: *const BinaryExpr, allocator: Allocator) []const u8 {
-        const optr_string = self.optr.toString();
+        const optr_string = self.optr.string();
         const str = std.fmt.allocPrint(allocator, "({s} {s} {s})", .{
             optr_string,
             self.left.string(allocator),
@@ -131,7 +132,7 @@ pub const UnaryExpr = struct {
     right: *Expr,
 
     fn string(self: *const UnaryExpr, allocator: Allocator) []const u8 {
-        const optr_string = self.optr.toString();
+        const optr_string = self.optr.string();
         const str = std.fmt.allocPrint(allocator, "({s} {s})", .{ 
             optr_string, 
             self.right.string(allocator),
@@ -157,6 +158,34 @@ pub const LiteralExpr = union(enum) {
     text:  []u8,
     boolean: bool,
     nil: bool,
+
+    pub fn evaluate(self: LiteralExpr, allocator: Allocator) !Value {
+        switch (self) {
+            .integer => |value| {
+                return Value{ .integer = value };
+            },
+
+            .double => |value| {
+                return Value{ .double = value };
+            },
+
+            .text => |value| {
+                const target_string = try allocator.alloc(u8, value.len);
+                @memcpy(target_string, value);
+                return Value{
+                    .string = target_string,
+                };
+            },
+
+            .boolean => |value| {
+                return Value{ .boolean = value };
+            },
+
+            .nil => {
+                return Value{ .nil = true };
+            },
+        }
+    }
 
     fn string(self: LiteralExpr, allocator: Allocator) []const u8 {
         var str: []const u8 = undefined;
