@@ -89,7 +89,7 @@ pub const Expr = union(enum) {
         }
     }
 
-    fn string(self: Expr, allocator: Allocator) []const u8 {
+    pub fn string(self: Expr, allocator: Allocator) []const u8 {
         switch (self) {
             .binary => |binary| {
                 return binary.string(allocator);

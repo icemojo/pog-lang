@@ -11,8 +11,8 @@ const ast       = @import("ast.zig");
 // recursive function calls. So, Zig needs an explicit error 
 // definition with all possible errors from the call stack merged.
 const ParserError = error {
-    PrimaryNodeError,
-    StringParsingError,
+    UnknownPrimaryNode,
+    InvalidStringComposition,
     DunnoIdentifier,
 
     OutOfMemory,
@@ -22,25 +22,34 @@ pub const Parser = struct {
     tokens: *std.ArrayList(Token),
     current: usize,
     has_error: bool,
+    debug_print: bool,
 
     pub fn init(tokens: *std.ArrayList(Token)) Parser {
         return .{
             .tokens = tokens,
             .current = 0,
             .has_error = false,
+            .debug_print = false,
         };
     }
 
     pub fn parse(self: *Parser, allocator: Allocator) ParserError!*ast.Expr {
+        debugPrint(self, "Start parsing the expression...\n", .{});
         return self.expression(allocator);
     }
 
     fn expression(self: *Parser, allocator: Allocator) ParserError!*ast.Expr {
-        return self.equality(allocator);
+        if (self.equality(allocator)) |it| {
+            debugPrint( self, "Root expression done with {s}\n", .{ it.string(allocator) });
+            return it;
+        } else |err| {
+            debugPrint(self, "Root expression done with error {}\n", .{ err });
+            return err;
+        }
     }
 
     fn equality(self: *Parser, allocator: Allocator) ParserError!*ast.Expr {
-        const expr = try self.comparision(allocator);
+        var expr = try self.comparision(allocator);
         const tokens_to_check = [_]TokenType{ .BangEqual, .EqualEqual };
         while (self.advanceIfMatchedAny(&tokens_to_check)) {
             // NOTE(yemon): `previous()` call here wouldn't panic, 
@@ -48,52 +57,52 @@ pub const Parser = struct {
             // to have a token left of the current one.
             const optr = self.previous().?;
             const right = try self.comparision(allocator);
-            const binary = try ast.createBinaryExpr(allocator, expr, optr, right);
-            return binary;
-        } else {
-            return expr;
-        }
+            expr = try ast.createBinaryExpr(allocator, expr, optr, right);
+            debugPrint(self, "Equality done with binary. {s}\n", .{ expr.string(allocator) });
+        } 
+        debugPrint(self, "Equality done. {s}\n", .{ expr.string(allocator) });
+        return expr;
     }
     
     fn comparision(self: *Parser, allocator: Allocator) ParserError!*ast.Expr {
-        const expr = try self.term(allocator);
+        var expr = try self.term(allocator);
         const tokens_to_check = [_]TokenType{ 
             .Greater, .GreaterEqual, .Less, .LessEqual 
         };
         while (self.advanceIfMatchedAny(&tokens_to_check)) {
             const optr = self.previous().?;
             const right = try self.comparision(allocator);
-            const binary = try ast.createBinaryExpr(allocator, expr, optr, right);
-            return binary;
-        } else {
-            return expr;
+            expr = try ast.createBinaryExpr(allocator, expr, optr, right);
+            debugPrint(self, "Comparison done with binary. {s}\n", .{ expr.string(allocator) });
         }
+        debugPrint(self, "Comparision done. {s}\n", .{ expr.string(allocator) });
+        return expr;
     }
 
     fn term(self: *Parser, allocator: Allocator) ParserError!*ast.Expr {
-        const expr = try self.factor(allocator);
+        var expr = try self.factor(allocator);
         const tokens_to_check = [_]TokenType{ .Minus, .Plus };
         while (self.advanceIfMatchedAny(&tokens_to_check)) {
             const optr = self.previous().?;
             const right = try self.factor(allocator);
-            const binary = try ast.createBinaryExpr(allocator, expr, optr, right);
-            return binary;
-        } else {
-            return expr;
-        }
+            expr = try ast.createBinaryExpr(allocator, expr, optr, right);
+            debugPrint(self, "Terminal done with binary. {s}\n", .{ expr.string(allocator) });
+        } 
+        debugPrint(self, "Terminal done. {s}\n", .{ expr.string(allocator) });
+        return expr;
     }
 
     fn factor(self: *Parser, allocator: Allocator) ParserError!*ast.Expr {
-        const expr = try self.unary(allocator);
+        var expr = try self.unary(allocator);
         const tokens_to_check = [_]TokenType{ .Slash, .Star };
         while (self.advanceIfMatchedAny(&tokens_to_check)) {
             const optr = self.previous().?;
             const right = try self.unary(allocator);
-            const binary = try ast.createBinaryExpr(allocator, expr, optr, right);
-            return binary;
-        } else {
-            return expr;
-        }
+            expr = try ast.createBinaryExpr(allocator, expr, optr, right);
+            debugPrint(self, "Factor done with binary. {s}\n", .{ expr.string(allocator) });
+        } 
+        debugPrint(self, "Factor done. {s}\n", .{ expr.string(allocator) });
+        return expr;
     }
 
     fn unary(self: *Parser, allocator: Allocator) ParserError!*ast.Expr {
@@ -102,13 +111,21 @@ pub const Parser = struct {
             const optr = self.previous().?;
             const right = try self.unary(allocator);
             const expr = try ast.createUnaryExpr(allocator, optr, right);
+            debugPrint(self, "Unary done with unary. {s}\n", .{ expr.string(allocator) });
             return expr;
         } else {
-            return self.primary(allocator);
+            if (self.primary(allocator)) |it| {
+                debugPrint(self, "Unary done with primary. {s}\n", .{ it.string(allocator) });
+                return it;
+            } else |err| {
+                debugPrint(self, "Unary done with error {}\n", .{ err });
+                return err;
+            }
         }
     }
 
     fn primary(self: *Parser, allocator: Allocator) ParserError!*ast.Expr {
+        debugPrint(self, "Primary...\n", .{});
         const token = self.peek();
 
         if (self.check(TokenType.Number)) {
@@ -119,6 +136,7 @@ pub const Parser = struct {
             const int_lit = try ast.createLiteral(allocator, ast.LiteralExpr{
                 .integer = int_value,
             });
+            debugPrint(self, "Primary done with int literal. {s}\n", .{ int_lit.string(allocator) });
             return int_lit;
         }
 
@@ -130,6 +148,7 @@ pub const Parser = struct {
             const double_lit = try ast.createLiteral(allocator, ast.LiteralExpr{
                 .double = double_value,
             });
+            debugPrint(self, "Primary done with double literal. {s}\n", .{ double_lit.string(allocator) });
             return double_lit;
         }
 
@@ -137,9 +156,10 @@ pub const Parser = struct {
             _ = self.advance();
             if (token.literal) |literal| {
                 const string_lit = try ast.createStringLiteral(allocator, literal);
+                debugPrint(self, "Primary done with string literal. {s}\n", .{ string_lit.string(allocator) });
                 return string_lit;
             } else {
-                return error.StringParsingError;
+                return error.InvalidStringComposition;
             }
         }
         
@@ -148,6 +168,7 @@ pub const Parser = struct {
             const true_lit = try ast.createLiteral(allocator, ast.LiteralExpr{
                 .boolean = true,
             });
+            debugPrint(self, "Primary done with true literal. {s}\n", .{ true_lit.string(allocator) });
             return true_lit;
         }
         if (self.check(TokenType.False)) {
@@ -155,6 +176,7 @@ pub const Parser = struct {
             const false_lit = try ast.createLiteral(allocator, ast.LiteralExpr{
                 .boolean = false,
             });
+            debugPrint(self, "Primary done with false literal. {s}\n", .{ false_lit.string(allocator) });
             return false_lit;
         }
         if (self.check(TokenType.Nil)) {
@@ -162,6 +184,7 @@ pub const Parser = struct {
             const nil_lit = try ast.createLiteral(allocator, ast.LiteralExpr{
                 .nil = true,
             });
+            debugPrint(self, "Primary done with nil literal. {s}\n", .{ nil_lit.string(allocator) });
             return nil_lit;
         }
 
@@ -179,10 +202,12 @@ pub const Parser = struct {
                 reportError(parser_error.token, error_message);
             }
 
+            debugPrint(self, "Primary done with group. {s}\n", .{ group.string(allocator) });
             return group;
         }
 
-        return error.PrimaryNodeError;
+        debugPrint(self, "Primary done with error.\n", .{});
+        return error.UnknownPrimaryNode;
     }
 
 // -----------------------------------------------------------------------------
@@ -293,4 +318,11 @@ fn reportPrint(allocator: Allocator, token: Token, index: u32, comptime message:
     debug.print("Error when parsing token {} at position index {}: {s}\n", .{
         token, index, fmt_message,
     });
+}
+
+fn debugPrint(self: *const Parser, comptime fmt: []const u8, args: anytype) void {
+    if (!self.debug_print) {
+        return;
+    }
+    debug.print(fmt, args);
 }
