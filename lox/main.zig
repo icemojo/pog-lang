@@ -73,6 +73,9 @@ fn run(allocator: Allocator, source: []const u8, options: *const opt.Options) vo
         }
     }
 
+    // NOTE(yemon): `ParserError` is being printed out here temporarily.
+    // Idealy, the parser should handle the error states internally, and 
+    // shouldn't bubble up at all.
     var parser = Parser.init(&scanner.tokens);
     const expr = parser.parse(allocator) catch |err| {
         debug.print("Error when parsing the expression tree: {}\n", .{ err });
@@ -81,6 +84,8 @@ fn run(allocator: Allocator, source: []const u8, options: *const opt.Options) vo
     debug.print("AST result from the Parser:\n", .{});
     if (!parser.has_error) {
         expr.display(allocator, true);
+    } else {
+        debug.print("Parser internals seem to have some errors.\n", .{});
     }
 }
 

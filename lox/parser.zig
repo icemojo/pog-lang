@@ -13,6 +13,7 @@ const ast       = @import("ast.zig");
 const ParserError = error {
     UnknownPrimaryNode,
     InvalidStringComposition,
+    InvalidSyncPosition,
     DunnoIdentifier,
 
     OutOfMemory,
@@ -38,6 +39,8 @@ pub const Parser = struct {
         return self.expression(allocator);
     }
 
+    // NOTE(yemon): The expression parser grammar doesn't currently have 
+    // assignments and statements yet.
     fn expression(self: *Parser, allocator: Allocator) ParserError!*ast.Expr {
         if (self.equality(allocator)) |it| {
             debugPrint( self, "Root expression done with {s}\n", .{ it.string(allocator) });
@@ -208,6 +211,33 @@ pub const Parser = struct {
 
         debugPrint(self, "Primary done with error.\n", .{});
         return error.UnknownPrimaryNode;
+    }
+
+    // NOTE(yemon): This'll usually get called right after `ParserError` is hit.
+    // The easiest synchronization point is at the 'statement boundaries',
+    // ie., between ';' and the start of next statement keywords.
+    fn synchronize(self: *Parser) !void {
+        _ = self.advance();
+        while (!self.isEnd()) : (_ = self.advance()) {
+            if (self.previous()) |it| {
+                if (it.token_type == .Semicolon) {
+                    return;
+                }
+            } else {
+                return error.InvalidSyncPosition;
+            }
+
+            switch (self.peek()) {
+                .Class => return,
+                .Fun => return,
+                .Var => return,
+                .If => return,
+                .For => return,
+                .While => return,
+                .Print => return,
+                .Return => return,
+            }
+        }
     }
 
 // -----------------------------------------------------------------------------
