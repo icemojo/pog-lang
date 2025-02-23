@@ -159,7 +159,7 @@ pub const LiteralExpr = union(enum) {
     boolean: bool,
     nil: bool,
 
-    pub fn evaluate(self: LiteralExpr, allocator: Allocator) !Value {
+    pub fn evaluate(self: LiteralExpr, allocator: Allocator) Value {
         switch (self) {
             .integer => |value| {
                 return Value{ .integer = value };
@@ -170,7 +170,7 @@ pub const LiteralExpr = union(enum) {
             },
 
             .text => |value| {
-                const target_string = try allocator.alloc(u8, value.len);
+                const target_string: []u8 = allocator.alloc(u8, value.len) catch "";
                 @memcpy(target_string, value);
                 return Value{
                     .string = target_string,

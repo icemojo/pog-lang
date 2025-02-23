@@ -71,6 +71,12 @@ pub const Value = union(enum) {
         }
     }
 
+    fn isNumber(self: Value) bool {
+        const int_value = self.getInteger();
+        const double_value = self.getDouble();
+        return int_value != null or double_value != null;
+    }
+
     fn getInteger(self: Value) ?i64 {
         switch (self) {
             .integer => |it| return it,
@@ -204,7 +210,14 @@ const EvaluationError = error {
     OutOfMemory,
 };
 
-pub fn evaluate(expr: *const ast.Expr, allocator: Allocator) EvaluationError!Value {
+// NOTE(yemon): Runtime errors should probably return, attached with a proper message
+// since they should probably be presented and visible to the user.
+const RuntimeError = error {
+    InvalidUnaryOperand,
+    InvalidBinaryOperands,
+};
+
+pub fn evaluate(expr: *const ast.Expr, allocator: Allocator) (EvaluationError || RuntimeError)!Value {
     switch (expr.*) {
         .binary => |binary| {
             return try evaluateBinaryExpr(&binary, allocator);
@@ -216,35 +229,49 @@ pub fn evaluate(expr: *const ast.Expr, allocator: Allocator) EvaluationError!Val
             return try evaluate(group.inner, allocator);
         },
         .literal => |literal| {
-            return try literal.evaluate(allocator);
+            return literal.evaluate(allocator);
         },
     }
 }
 
-fn evaluateBinaryExpr(binary: *const ast.BinaryExpr, allocator: Allocator) EvaluationError!Value {
+fn evaluateBinaryExpr(binary: *const ast.BinaryExpr, allocator: Allocator) (EvaluationError || RuntimeError)!Value {
     const left_value = try evaluate(binary.left, allocator);
     const right_value = try evaluate(binary.right, allocator);
 
     switch (binary.optr.token_type) { 
         .Minus => {
+            if (!left_value.isNumber() or !right_value.isNumber()) {
+                return error.InvalidBinaryOperands;
+            }
             return try left_value.doArithmetic(right_value, .substract);
         },
         .Slash => {
+            if (!left_value.isNumber() or !right_value.isNumber()) {
+                return error.InvalidBinaryOperands;
+            }
             return try left_value.doArithmetic(right_value, .divide);
         },
         .Star => {
+            if (!left_value.isNumber() or !right_value.isNumber()) {
+                return error.InvalidBinaryOperands;
+            }
             return try left_value.doArithmetic(right_value, .multiply);
         },
 
         .Plus => {
             switch (left_value) {
                 .integer, .double => {
+                    if (!left_value.isNumber() or !right_value.isNumber()) {
+                        return error.InvalidBinaryOperands;
+                    }
                     return try left_value.doArithmetic(right_value, .addition);
                 },
                 .string => |left_string| {
                     switch (right_value) {
                         .string => |right_string| {
-                            return try concatStrings(allocator, left_string, right_string);
+                            return concatStrings(allocator, left_string, right_string) catch {
+                                return error.StringConcatFailed;
+                            };
                         },
                         else => {
                             return error.InvalidStringOperand;
@@ -273,11 +300,15 @@ fn evaluateBinaryExpr(binary: *const ast.BinaryExpr, allocator: Allocator) Evalu
     }
 }
 
-fn evaluateUnaryExpr(unary: *const ast.UnaryExpr, allocator: Allocator) !Value {
+fn evaluateUnaryExpr(unary: *const ast.UnaryExpr, allocator: Allocator) (EvaluationError || RuntimeError)!Value {
     const value = try evaluate(unary.right, allocator);
 
     switch (unary.optr.token_type) {
         .Minus => {
+            if (!value.isNumber()) {
+                return error.InvalidUnaryOperand;
+            }
+
             // NOTE(yemon): For this kind of situations, I'd really like to define 
             // my own casting operator (similar to @as) like:
             //     @unionCast(i64, Value, value),

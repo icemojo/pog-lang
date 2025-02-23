@@ -90,7 +90,7 @@ fn run(allocator: Allocator, source: []const u8, options: *const opt.Options) vo
     }
 
     const value = interpreter.evaluate(expr, allocator) catch |err| {
-        debug.print("Error eavluating the expression: {}\n", .{ err });
+        debug.print("Error evaluating the expression: {}\n", .{ err });
         return;
     };
     debug.print("Interpreter evaluated value:\n", .{});
