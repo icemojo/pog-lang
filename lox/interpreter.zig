@@ -8,6 +8,11 @@ const ArithmeticOp = enum {
     substract,
     divide,
     multiply,
+    addition,
+};
+
+const ValueError = error {
+    InvalidValueComparison,
 };
 
 pub const Value = union(enum) {
@@ -26,7 +31,83 @@ pub const Value = union(enum) {
         }
     }
 
-    fn doArithmetic(self: Value, rhs: Value, op: ArithmeticOp) !Value {
+    fn isEqual(self: Value, other: Value) ValueError!bool {
+        switch (self) {
+            .integer => |left| {
+                if (other.getInteger()) |right| {
+                    return left == right;
+                } else {
+                    return error.InvalidValueComparison;
+                }
+            },
+            .double => |left| {
+                if (other.getDouble()) |right| {
+                    return left == right;
+                } else {
+                    return error.InvalidValueComparison;
+                }
+            },
+            .string => |left| {
+                if (other.getString()) |right| {
+                    return std.mem.eql(u8, left, right);
+                } else {
+                    return error.InvalidValueComparison;
+                }
+            },
+            .boolean => |left| {
+                if (other.getBoolean()) |right| {
+                    return left == right;
+                } else {
+                    return error.InvalidValueComparison;
+                }
+            },
+            .nil => {
+                if (other.isNil()) {
+                    return true;
+                } else {
+                    return error.InvalidValueComparison;
+                }
+            },
+        }
+    }
+
+    fn getInteger(self: Value) ?i64 {
+        switch (self) {
+            .integer => |it| return it,
+            else => return null,
+        }
+    }
+
+    fn getDouble(self: Value) ?f64 {
+        switch (self) {
+            .double => |it| return it,
+            else => return null,
+        }
+    }
+
+    fn getString(self: Value) ?[]u8 {
+        switch (self) {
+            .string => |it| return it,
+            else => return null,
+        }
+    }
+
+    fn getBoolean(self: Value) ?bool {
+        switch (self) {
+            .boolean => |it| return it,
+            else => return null,
+        }
+    }
+
+    fn isNil(self: Value) bool {
+        switch (self) {
+            .nil => return true,
+            else => return false,
+        }
+    }
+
+
+    fn doArithmetic(self: Value, rhs: Value, op: ArithmeticOp) EvaluationError!Value {
         // NOTE(yemon): I know 'force coercing' i64 into f64 is kinda dangerous
         // but I'm just getting this up and running for the time being.
         switch (self) {
@@ -37,14 +118,16 @@ pub const Value = union(enum) {
                             .substract => return Value{ .integer = left_int - right_int, },
                             .divide => return Value{ .integer = @divFloor(left_int, right_int) },
                             .multiply => return Value{ .integer = left_int * right_int },
+                            .addition => return Value{ .integer = left_int + right_int },
                         }
                     },
                     .double => |right_double| {
-                        const right_value: i64 = @intFromFloat(right_double);
+                        const left_value: f64 = @floatFromInt(left_int);
                         switch (op) {
-                            .substract => return Value{ .integer = left_int - right_value },
-                            .divide => return Value{ .integer = @divFloor(left_int, right_value) },
-                            .multiply => return Value{ .integer = left_int * right_value },
+                            .substract => return Value{ .double = left_value - right_double },
+                            .divide => return Value{ .double = left_value / right_double },
+                            .multiply => return Value{ .double = left_value * right_double },
+                            .addition => return Value{ .double = left_value + right_double },
                         }
                     },
                     else => {
@@ -61,6 +144,7 @@ pub const Value = union(enum) {
                             .substract => return Value{ .double = left_double - right_value },
                             .divide => return Value{ .double = left_double / right_value },
                             .multiply => return Value{ .double = left_double * right_value },
+                            .addition => return Value{ .double = left_double + right_value },
                         }
                     },
                     .double => |right_double| {
@@ -68,6 +152,7 @@ pub const Value = union(enum) {
                             .substract => return Value{ .double = left_double - right_double },
                             .divide => return Value{ .double = left_double / right_double },
                             .multiply => return Value{ .double = left_double * right_double },
+                            .addition => return Value{ .double = left_double + right_double },
                         }
                     },
                     else => {
@@ -81,11 +166,39 @@ pub const Value = union(enum) {
             }
         }
     }
+
+    pub fn toString(self: Value, allocator: Allocator) []const u8 {
+        switch (self) {
+            .integer => |it| {
+                return std.fmt.allocPrint(allocator, "{}", .{ it }) catch "";
+            },
+            .double => |it| {
+                return std.fmt.allocPrint(allocator, "{d}", .{ it }) catch "";
+            },
+            .string => |it| {
+                return std.fmt.allocPrint(allocator, "\"{s}\"", .{ it }) catch "";
+            },
+            .boolean => |it| {
+                return std.fmt.allocPrint(allocator, "{}", .{ it }) catch "";
+            },
+            .nil => {
+                return "nil";
+            },
+        }
+    }
 };
 
+fn concatStrings(allocator: Allocator, string1: []const u8, string2: []const u8) !Value {
+    const target_string = try std.fmt.allocPrint(allocator, "{s}{s}", .{ string1, string2 });
+    return Value{ .string = target_string };
+}
+
 const EvaluationError = error {
+    UnknownBinaryOperation,
     InvalidArithmeticOperand,
+    InvalidStringOperand,
     InvalidValueTypeToNegate,
+    StringConcatFailed,
     NotDoneYet,
 
     OutOfMemory,
@@ -123,8 +236,39 @@ fn evaluateBinaryExpr(binary: *const ast.BinaryExpr, allocator: Allocator) Evalu
             return try left_value.doArithmetic(right_value, .multiply);
         },
 
+        .Plus => {
+            switch (left_value) {
+                .integer, .double => {
+                    return try left_value.doArithmetic(right_value, .addition);
+                },
+                .string => |left_string| {
+                    switch (right_value) {
+                        .string => |right_string| {
+                            return try concatStrings(allocator, left_string, right_string);
+                        },
+                        else => {
+                            return error.InvalidStringOperand;
+                        }
+                    }
+                },
+                else => {
+                    return error.InvalidArithmeticOperand;
+                }
+            }
+            return try left_value.doAddition(allocator, right_value);
+        },
+
+        .BangEqual => {
+            const is_equal = left_value.isEqual(right_value) catch false;
+            return Value{ .boolean = !is_equal };
+        },
+        .EqualEqual => {
+            const is_equal = left_value.isEqual(right_value) catch false;
+            return Value{ .boolean = is_equal };
+        },
+
         else => {
-            return error.NotDoneYet;
+            return error.UnknownBinaryOperation;
         }
     }
 }

@@ -93,7 +93,8 @@ fn run(allocator: Allocator, source: []const u8, options: *const opt.Options) vo
         debug.print("Error eavluating the expression: {}\n", .{ err });
         return;
     };
-    _ = value;
+    debug.print("Interpreter evaluated value:\n", .{});
+    debug.print("{s}\n", .{ value.toString(allocator) });
 }
 
 fn reportError(line: u32, where: []const u8, message: []const u8) void {
