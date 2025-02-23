@@ -70,19 +70,19 @@ pub const Expr = union(enum) {
     pub fn display(self: Expr, allocator: Allocator, line_break: bool) void { 
         switch (self) {
             .binary => |binary| {
-                debug.print("{s}", .{ binary.string(allocator) });
+                debug.print("{s}", .{ binary.toString(allocator) });
             },
 
             .unary => |unary| {
-                debug.print("{s}", .{ unary.string(allocator) });
+                debug.print("{s}", .{ unary.toString(allocator) });
             },
 
             .grouping => |grouping| {
-                debug.print("{s}", .{ grouping.string(allocator) });
+                debug.print("{s}", .{ grouping.toString(allocator) });
             },
 
             .literal => |literal| {
-                debug.print("{s}", .{ literal.string(allocator) });
+                debug.print("{s}", .{ literal.toString(allocator) });
             },
         }
         if (line_break) {
@@ -90,22 +90,22 @@ pub const Expr = union(enum) {
         }
     }
 
-    pub fn string(self: Expr, allocator: Allocator) []const u8 {
+    pub fn toString(self: Expr, allocator: Allocator) []const u8 {
         switch (self) {
             .binary => |binary| {
-                return binary.string(allocator);
+                return binary.toString(allocator);
             },
 
             .unary => |unary| {
-                return unary.string(allocator);
+                return unary.toString(allocator);
             },
 
             .grouping => |grouping| {
-                return grouping.string(allocator);
+                return grouping.toString(allocator);
             },
 
             .literal => |literal| {
-                return literal.string(allocator);
+                return literal.toString(allocator);
             },
         }
     }
@@ -116,12 +116,12 @@ pub const BinaryExpr = struct {
     optr:  Token,
     right: *Expr,
 
-    fn string(self: *const BinaryExpr, allocator: Allocator) []const u8 {
-        const optr_string = self.optr.string();
+    fn toString(self: *const BinaryExpr, allocator: Allocator) []const u8 {
+        const optr_string = self.optr.toString();
         const str = std.fmt.allocPrint(allocator, "({s} {s} {s})", .{
             optr_string,
-            self.left.string(allocator),
-            self.right.string(allocator),
+            self.left.toString(allocator),
+            self.right.toString(allocator),
         }) catch "(NA)";
         return str;
     }
@@ -131,11 +131,11 @@ pub const UnaryExpr = struct {
     optr:  Token,
     right: *Expr,
 
-    fn string(self: *const UnaryExpr, allocator: Allocator) []const u8 {
-        const optr_string = self.optr.string();
+    fn toString(self: *const UnaryExpr, allocator: Allocator) []const u8 {
+        const optr_string = self.optr.toString();
         const str = std.fmt.allocPrint(allocator, "({s} {s})", .{ 
             optr_string, 
-            self.right.string(allocator),
+            self.right.toString(allocator),
         }) catch "(NA)";
         return str;
     }
@@ -144,9 +144,9 @@ pub const UnaryExpr = struct {
 pub const GroupingExpr = struct {
     inner: *Expr,
 
-    fn string(self: *const GroupingExpr, allocator: Allocator) []const u8 {
+    fn toString(self: *const GroupingExpr, allocator: Allocator) []const u8 {
         const str = std.fmt.allocPrint(allocator, "{s}", .{
-            self.inner.string(allocator),
+            self.inner.toString(allocator),
         }) catch "(NA)";
         return str;
     }
@@ -187,7 +187,7 @@ pub const LiteralExpr = union(enum) {
         }
     }
 
-    fn string(self: LiteralExpr, allocator: Allocator) []const u8 {
+    fn toString(self: LiteralExpr, allocator: Allocator) []const u8 {
         var str: []const u8 = undefined;
         switch (self) {
             .integer => |value| {

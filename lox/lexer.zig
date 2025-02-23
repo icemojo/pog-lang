@@ -76,7 +76,7 @@ pub const Token = struct {
         debug.print(")\n", .{});
     }
 
-    pub fn string(self: *const Token) []const u8 {
+    pub fn toString(self: *const Token) []const u8 {
         return if (self.lexeme) |lexeme| blk: {
             if (!std.mem.eql(u8, lexeme, "")) {
                 break :blk lexeme;

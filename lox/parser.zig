@@ -43,7 +43,7 @@ pub const Parser = struct {
     // assignments and statements yet.
     fn expression(self: *Parser, allocator: Allocator) ParserError!*ast.Expr {
         if (self.equality(allocator)) |it| {
-            debugPrint( self, "Root expression done with {s}\n", .{ it.string(allocator) });
+            debugPrint( self, "Root expression done with {s}\n", .{ it.toString(allocator) });
             return it;
         } else |err| {
             debugPrint(self, "Root expression done with error {}\n", .{ err });
@@ -61,9 +61,9 @@ pub const Parser = struct {
             const optr = self.previous().?;
             const right = try self.comparision(allocator);
             expr = try ast.createBinaryExpr(allocator, expr, optr, right);
-            debugPrint(self, "Equality done with binary. {s}\n", .{ expr.string(allocator) });
+            debugPrint(self, "Equality done with binary. {s}\n", .{ expr.toString(allocator) });
         } 
-        debugPrint(self, "Equality done. {s}\n", .{ expr.string(allocator) });
+        debugPrint(self, "Equality done. {s}\n", .{ expr.toString(allocator) });
         return expr;
     }
     
@@ -76,9 +76,9 @@ pub const Parser = struct {
             const optr = self.previous().?;
             const right = try self.comparision(allocator);
             expr = try ast.createBinaryExpr(allocator, expr, optr, right);
-            debugPrint(self, "Comparison done with binary. {s}\n", .{ expr.string(allocator) });
+            debugPrint(self, "Comparison done with binary. {s}\n", .{ expr.toString(allocator) });
         }
-        debugPrint(self, "Comparision done. {s}\n", .{ expr.string(allocator) });
+        debugPrint(self, "Comparision done. {s}\n", .{ expr.toString(allocator) });
         return expr;
     }
 
@@ -89,9 +89,9 @@ pub const Parser = struct {
             const optr = self.previous().?;
             const right = try self.factor(allocator);
             expr = try ast.createBinaryExpr(allocator, expr, optr, right);
-            debugPrint(self, "Terminal done with binary. {s}\n", .{ expr.string(allocator) });
+            debugPrint(self, "Terminal done with binary. {s}\n", .{ expr.toString(allocator) });
         } 
-        debugPrint(self, "Terminal done. {s}\n", .{ expr.string(allocator) });
+        debugPrint(self, "Terminal done. {s}\n", .{ expr.toString(allocator) });
         return expr;
     }
 
@@ -102,9 +102,9 @@ pub const Parser = struct {
             const optr = self.previous().?;
             const right = try self.unary(allocator);
             expr = try ast.createBinaryExpr(allocator, expr, optr, right);
-            debugPrint(self, "Factor done with binary. {s}\n", .{ expr.string(allocator) });
+            debugPrint(self, "Factor done with binary. {s}\n", .{ expr.toString(allocator) });
         } 
-        debugPrint(self, "Factor done. {s}\n", .{ expr.string(allocator) });
+        debugPrint(self, "Factor done. {s}\n", .{ expr.toString(allocator) });
         return expr;
     }
 
@@ -114,11 +114,11 @@ pub const Parser = struct {
             const optr = self.previous().?;
             const right = try self.unary(allocator);
             const expr = try ast.createUnaryExpr(allocator, optr, right);
-            debugPrint(self, "Unary done with unary. {s}\n", .{ expr.string(allocator) });
+            debugPrint(self, "Unary done with unary. {s}\n", .{ expr.toString(allocator) });
             return expr;
         } else {
             if (self.primary(allocator)) |it| {
-                debugPrint(self, "Unary done with primary. {s}\n", .{ it.string(allocator) });
+                debugPrint(self, "Unary done with primary. {s}\n", .{ it.toString(allocator) });
                 return it;
             } else |err| {
                 debugPrint(self, "Unary done with error {}\n", .{ err });
@@ -139,7 +139,7 @@ pub const Parser = struct {
             const int_lit = try ast.createLiteral(allocator, ast.LiteralExpr{
                 .integer = int_value,
             });
-            debugPrint(self, "Primary done with int literal. {s}\n", .{ int_lit.string(allocator) });
+            debugPrint(self, "Primary done with int literal. {s}\n", .{ int_lit.toString(allocator) });
             return int_lit;
         }
 
@@ -151,7 +151,7 @@ pub const Parser = struct {
             const double_lit = try ast.createLiteral(allocator, ast.LiteralExpr{
                 .double = double_value,
             });
-            debugPrint(self, "Primary done with double literal. {s}\n", .{ double_lit.string(allocator) });
+            debugPrint(self, "Primary done with double literal. {s}\n", .{ double_lit.toString(allocator) });
             return double_lit;
         }
 
@@ -159,7 +159,7 @@ pub const Parser = struct {
             _ = self.advance();
             if (token.literal) |literal| {
                 const string_lit = try ast.createStringLiteral(allocator, literal);
-                debugPrint(self, "Primary done with string literal. {s}\n", .{ string_lit.string(allocator) });
+                debugPrint(self, "Primary done with string literal. {s}\n", .{ string_lit.toString(allocator) });
                 return string_lit;
             } else {
                 return error.InvalidStringComposition;
@@ -171,7 +171,7 @@ pub const Parser = struct {
             const true_lit = try ast.createLiteral(allocator, ast.LiteralExpr{
                 .boolean = true,
             });
-            debugPrint(self, "Primary done with true literal. {s}\n", .{ true_lit.string(allocator) });
+            debugPrint(self, "Primary done with true literal. {s}\n", .{ true_lit.toString(allocator) });
             return true_lit;
         }
         if (self.check(TokenType.False)) {
@@ -179,7 +179,7 @@ pub const Parser = struct {
             const false_lit = try ast.createLiteral(allocator, ast.LiteralExpr{
                 .boolean = false,
             });
-            debugPrint(self, "Primary done with false literal. {s}\n", .{ false_lit.string(allocator) });
+            debugPrint(self, "Primary done with false literal. {s}\n", .{ false_lit.toString(allocator) });
             return false_lit;
         }
         if (self.check(TokenType.Nil)) {
@@ -187,7 +187,7 @@ pub const Parser = struct {
             const nil_lit = try ast.createLiteral(allocator, ast.LiteralExpr{
                 .nil = true,
             });
-            debugPrint(self, "Primary done with nil literal. {s}\n", .{ nil_lit.string(allocator) });
+            debugPrint(self, "Primary done with nil literal. {s}\n", .{ nil_lit.toString(allocator) });
             return nil_lit;
         }
 
@@ -205,7 +205,7 @@ pub const Parser = struct {
                 reportError(parser_error.token, error_message);
             }
 
-            debugPrint(self, "Primary done with group. {s}\n", .{ group.string(allocator) });
+            debugPrint(self, "Primary done with group. {s}\n", .{ group.toString(allocator) });
             return group;
         }
 
