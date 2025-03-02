@@ -218,6 +218,49 @@ pub const LiteralExpr = union(enum) {
     }
 };
 
+pub const Stmt = union(enum) {
+    expr: ExprStmt,
+    print: PrintStmt,
+};
+
+pub const ExprStmt = struct {
+    expr: *Expr,
+
+    fn toString(self: *const ExprStmt, allocator: Allocator) []const u8 {
+        const str = self.expr.*.toString(allocator);
+        return str;
+    }
+};
+
+pub const PrintStmt = struct {
+    expr: *Expr,
+
+    fn toString(self: *const PrintStmt, allocator: Allocator) []const u8 {
+        const str = self.expr.*.toString(allocator);
+        return str;
+    }
+};
+
+pub fn createExprStmt(allocator: Allocator, expr: *Expr) !*Stmt {
+    const stmt = try allocator.create(Stmt);
+    stmt.* = Stmt{
+        .expr = ExprStmt{
+            .expr = expr,
+        },
+    };
+    return stmt;
+}
+
+pub fn createPrintStmt(allocator: Allocator, expr: *Expr) !*Stmt {
+    const stmt = try allocator.create(Stmt);
+    stmt.* = Stmt{
+        .print = PrintStmt{
+            .expr = expr,
+        },
+    };
+    return stmt;
+}
+
 // -----------------------------------------------------------------------------
 
 const expect = std.testing.expect;

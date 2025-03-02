@@ -34,9 +34,36 @@ pub const Parser = struct {
         };
     }
 
-    pub fn parse(self: *Parser, allocator: Allocator) ParserError!*ast.Expr {
-        debugPrint(self, "Start parsing the expression...\n", .{});
-        return self.expression(allocator);
+    pub fn parse(self: *Parser, allocator: Allocator) ParserError!std.ArrayList(*ast.Stmt) {
+        var statements = std.ArrayList(*ast.Stmt).init(allocator);
+        while (!self.isEnd()) {
+            const stmt = try self.statement(allocator);
+            try statements.append(stmt);
+        }
+        return statements;
+    }
+
+    fn statement(self: *Parser, allocator: Allocator) !*ast.Stmt {
+        const print_token = [_]TokenType{ .Print };
+        if (self.advanceIfMatchedAny(&print_token)) {
+            return self.printStatement(allocator);
+        } else {
+            return self.expressionStatement(allocator);
+        }
+    }
+
+    fn expressionStatement(self: *Parser, allocator: Allocator) !*ast.Stmt {
+        const expr = try self.expression(allocator);
+        _ = self.consume(.Semicolon, "Expect ';' after expression.");
+        const stmt = try ast.createExprStmt(allocator, expr);
+        return stmt;
+    }
+
+    fn printStatement(self: *Parser, allocator: Allocator) !*ast.Stmt {
+        const expr = try self.expression(allocator);
+        _ = self.consume(.Semicolon, "Expect ';' after value.");
+        const stmt = try ast.createPrintStmt(allocator, expr);
+        return stmt;
     }
 
     // NOTE(yemon): The expression parser grammar doesn't currently have 

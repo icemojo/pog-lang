@@ -68,7 +68,7 @@ fn run(allocator: Allocator, source: []const u8, options: *const opt.Options) vo
     var scanner = lexer.Scanner.init(allocator, source, options.verbose);
     scanner.startScanning();
 
-    if (options.verbose) {
+    if (options.show_tokens) {
         for (scanner.tokens.items) |token| {
             token.display();
         }
@@ -78,23 +78,16 @@ fn run(allocator: Allocator, source: []const u8, options: *const opt.Options) vo
     // Idealy, the parser should handle the error states internally, and 
     // shouldn't bubble up at all.
     var parser = Parser.init(&scanner.tokens);
-    const expr = parser.parse(allocator) catch |err| {
+    const statements = parser.parse(allocator) catch |err| {
         debug.print("Error when parsing the expression tree: {}\n", .{ err });
         return;
     };
-    debug.print("AST result from the Parser:\n", .{});
-    if (!parser.has_error) {
-        expr.display(allocator, true);
-    } else {
-        debug.print("Parser internals seem to have some errors.\n", .{});
-    }
 
-    const value = interpreter.evaluate(expr, allocator) catch |err| {
-        debug.print("Error evaluating the expression: {}\n", .{ err });
+    interpreter.execute(statements, allocator) catch |err| {
+        debug.print("Runtime error occured:\n", .{});
+        debug.print("{}\n", .{ err });
         return;
     };
-    debug.print("Interpreter evaluated value:\n", .{});
-    debug.print("{s}\n", .{ value.toString(allocator) });
 }
 
 fn reportError(line: u32, where: []const u8, message: []const u8) void {

@@ -217,7 +217,25 @@ const RuntimeError = error {
     InvalidBinaryOperands,
 };
 
-pub fn evaluate(expr: *const ast.Expr, allocator: Allocator) (EvaluationError || RuntimeError)!Value {
+pub fn execute(statements: std.ArrayList(*ast.Stmt), allocator: Allocator) (EvaluationError || RuntimeError)!void {
+    for (statements.items) |stmt| {
+        try evaluateStatement(stmt, allocator);
+    }
+}
+
+fn evaluateStatement(stmt: *const ast.Stmt, allocator: Allocator) (EvaluationError || RuntimeError)!void {
+    switch (stmt.*) {
+        .expr => |expr| {
+            _ = try evaluate(expr.expr, allocator);
+        },
+        .print => |print| {
+            const value = try evaluate(print.expr, allocator);
+            debug.print("{s}\n", .{ value.toString(allocator) });
+        },
+    }
+}
+
+fn evaluate(expr: *const ast.Expr, allocator: Allocator) (EvaluationError || RuntimeError)!Value {
     switch (expr.*) {
         .binary => |binary| {
             return try evaluateBinaryExpr(&binary, allocator);

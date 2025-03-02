@@ -5,7 +5,7 @@ const Allocator = @import("std").mem.Allocator;
 pub const Options = struct {
     verbose: bool,
     show_help: bool,
-    tokenize_only: bool,
+    show_tokens: bool,
     repl_start: bool,
 };
 
@@ -19,7 +19,7 @@ pub fn parseOptions(allocator: Allocator) Options {
     var options = Options{
         .verbose = false,
         .show_help = false,
-        .tokenize_only = false,
+        .show_tokens = false,
         .repl_start = false,
     };
     var unknowns = std.ArrayList([]u8).init(allocator);
@@ -33,7 +33,7 @@ pub fn parseOptions(allocator: Allocator) Options {
             continue;
         }
         if (eql(u8, arg, "-t") or eql(u8, arg, "--tokenize")) {
-            options.tokenize_only = true;
+            options.show_tokens = true;
             continue;
         }
         if (eql(u8, arg, "-r") or eql(u8, arg, "--repl")) {
