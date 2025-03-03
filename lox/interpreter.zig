@@ -217,34 +217,34 @@ const RuntimeError = error {
     InvalidBinaryOperands,
 };
 
-pub fn execute(statements: std.ArrayList(*ast.Stmt), allocator: Allocator) (EvaluationError || RuntimeError)!void {
+pub fn execute(allocator: Allocator, statements: std.ArrayList(*ast.Stmt)) (EvaluationError || RuntimeError)!void {
     for (statements.items) |stmt| {
-        try evaluateStatement(stmt, allocator);
+        try evaluateStatement(allocator, stmt);
     }
 }
 
-fn evaluateStatement(stmt: *const ast.Stmt, allocator: Allocator) (EvaluationError || RuntimeError)!void {
+fn evaluateStatement(allocator: Allocator, stmt: *const ast.Stmt) (EvaluationError || RuntimeError)!void {
     switch (stmt.*) {
         .expr => |expr| {
-            _ = try evaluate(expr.expr, allocator);
+            _ = try evaluate(allocator, expr.expr);
         },
         .print => |print| {
-            const value = try evaluate(print.expr, allocator);
+            const value = try evaluate(allocator, print.expr);
             debug.print("{s}\n", .{ value.toString(allocator) });
         },
     }
 }
 
-fn evaluate(expr: *const ast.Expr, allocator: Allocator) (EvaluationError || RuntimeError)!Value {
+fn evaluate(allocator: Allocator, expr: *const ast.Expr) (EvaluationError || RuntimeError)!Value {
     switch (expr.*) {
         .binary => |binary| {
-            return try evaluateBinaryExpr(&binary, allocator);
+            return try evaluateBinaryExpr(allocator, &binary);
         },
         .unary => |unary| {
-            return try evaluateUnaryExpr(&unary, allocator);
+            return try evaluateUnaryExpr(allocator, &unary);
         },
         .grouping => |group| {
-            return try evaluate(group.inner, allocator);
+            return try evaluate(allocator, group.inner);
         },
         .literal => |literal| {
             return literal.evaluate(allocator);
@@ -252,9 +252,9 @@ fn evaluate(expr: *const ast.Expr, allocator: Allocator) (EvaluationError || Run
     }
 }
 
-fn evaluateBinaryExpr(binary: *const ast.BinaryExpr, allocator: Allocator) (EvaluationError || RuntimeError)!Value {
-    const left_value = try evaluate(binary.left, allocator);
-    const right_value = try evaluate(binary.right, allocator);
+fn evaluateBinaryExpr(allocator: Allocator, binary: *const ast.BinaryExpr) (EvaluationError || RuntimeError)!Value {
+    const left_value = try evaluate(allocator, binary.left);
+    const right_value = try evaluate(allocator, binary.right);
 
     switch (binary.optr.token_type) { 
         .Minus => {
@@ -300,7 +300,6 @@ fn evaluateBinaryExpr(binary: *const ast.BinaryExpr, allocator: Allocator) (Eval
                     return error.InvalidArithmeticOperand;
                 }
             }
-            return try left_value.doAddition(allocator, right_value);
         },
 
         .BangEqual => {
@@ -318,8 +317,8 @@ fn evaluateBinaryExpr(binary: *const ast.BinaryExpr, allocator: Allocator) (Eval
     }
 }
 
-fn evaluateUnaryExpr(unary: *const ast.UnaryExpr, allocator: Allocator) (EvaluationError || RuntimeError)!Value {
-    const value = try evaluate(unary.right, allocator);
+fn evaluateUnaryExpr(allocator: Allocator, unary: *const ast.UnaryExpr) (EvaluationError || RuntimeError)!Value {
+    const value = try evaluate(allocator, unary.right);
 
     switch (unary.optr.token_type) {
         .Minus => {
