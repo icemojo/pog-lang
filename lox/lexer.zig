@@ -65,6 +65,14 @@ pub const Token = struct {
     literal: ?[]const u8,
     line: u32,
 
+    pub fn isTerminator(self: *const Token) bool {
+        return switch (self.token_type) {
+            .Eof => true,
+            .Semicolon => true,
+            else => false,
+        };
+    }
+
     pub fn display(self: *const Token) void {
         debug.print("[{}] Token ({}", .{ self.line, self.token_type });
         if (self.lexeme) |lexeme| {

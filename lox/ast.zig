@@ -61,26 +61,34 @@ pub fn createStringLiteral(allocator: Allocator, string_value: []const u8) !*Exp
     return expr;
 }
 
+pub fn createVariableExpr(allocator: Allocator, name: Token) !*Expr {
+    const expr = try allocator.create(Expr);
+    expr.* = Expr{
+        .variable = name,
+    };
+    return expr;
+}
+
+const VariableExpr = Token;
+
 pub const Expr = union(enum) {
     binary: BinaryExpr,
     unary: UnaryExpr,
     grouping: GroupingExpr,
     literal: LiteralExpr,
+    variable: VariableExpr,
 
     pub fn display(self: Expr, allocator: Allocator, line_break: bool) void { 
         switch (self) {
             .binary => |binary| {
                 debug.print("{s}", .{ binary.toString(allocator) });
             },
-
             .unary => |unary| {
                 debug.print("{s}", .{ unary.toString(allocator) });
             },
-
             .grouping => |grouping| {
                 debug.print("{s}", .{ grouping.toString(allocator) });
             },
-
             .literal => |literal| {
                 debug.print("{s}", .{ literal.toString(allocator) });
             },
@@ -95,17 +103,17 @@ pub const Expr = union(enum) {
             .binary => |binary| {
                 return binary.toString(allocator);
             },
-
             .unary => |unary| {
                 return unary.toString(allocator);
             },
-
             .grouping => |grouping| {
                 return grouping.toString(allocator);
             },
-
             .literal => |literal| {
                 return literal.toString(allocator);
+            },
+            .variable => |variable| {
+                return variable.toString();
             },
         }
     }
@@ -219,24 +227,66 @@ pub const LiteralExpr = union(enum) {
 };
 
 pub const Stmt = union(enum) {
-    expr: ExprStmt,
+    variable: VariableStmt,
     print: PrintStmt,
+    expr: ExprStmt,
 };
 
-pub const ExprStmt = struct {
-    expr: *Expr,
+pub const VariableStmt = struct {
+    identifier: Token,
+    initializer: ?*Expr,
 
-    fn toString(self: *const ExprStmt, allocator: Allocator) []const u8 {
-        const str = self.expr.*.toString(allocator);
-        return str;
+    fn toString(self: *const VariableStmt, allocator: Allocator) []const u8 {
+        const name = self.name.toString();
+        if (self.initializer) |initializer| {
+            const str = std.fmt.allocPrint(allocator, "var {s} = {s};", .{ name, initializer.toString(allocator) });
+            return str;
+        } else {
+            const str = std.fmt.allocPrint(allocator, "var {s}", .{ name });
+            return str;
+        }
     }
 };
+
+pub fn createVariableStmt(allocator: Allocator, identifier: Token, initializer: ?*Expr) !*Stmt {
+    const stmt = try allocator.create(Stmt);
+    stmt.* = Stmt{
+        .variable = VariableStmt{
+            .identifier = identifier,
+            .initializer = initializer,
+        },
+    };
+    return stmt;
+}
 
 pub const PrintStmt = struct {
     expr: *Expr,
 
     fn toString(self: *const PrintStmt, allocator: Allocator) []const u8 {
-        const str = self.expr.*.toString(allocator);
+        const str = try std.fmt.allocPrint(allocator, "print {s};\n", .{ 
+            self.expr.*.toString(allocator) 
+        });
+        return str;
+    }
+};
+
+pub fn createPrintStmt(allocator: Allocator, expr: *Expr) !*Stmt {
+    const stmt = try allocator.create(Stmt);
+    stmt.* = Stmt{
+        .print = PrintStmt{
+            .expr = expr,
+        },
+    };
+    return stmt;
+}
+
+pub const ExprStmt = struct {
+    expr: *Expr,
+
+    fn toString(self: *const ExprStmt, allocator: Allocator) []const u8 {
+        const str = try std.fmt.allocPrint(allocator, "{s};\n", .{ 
+            self.expr.*.toString(allocator) 
+        });
         return str;
     }
 };
@@ -245,16 +295,6 @@ pub fn createExprStmt(allocator: Allocator, expr: *Expr) !*Stmt {
     const stmt = try allocator.create(Stmt);
     stmt.* = Stmt{
         .expr = ExprStmt{
-            .expr = expr,
-        },
-    };
-    return stmt;
-}
-
-pub fn createPrintStmt(allocator: Allocator, expr: *Expr) !*Stmt {
-    const stmt = try allocator.create(Stmt);
-    stmt.* = Stmt{
-        .print = PrintStmt{
             .expr = expr,
         },
     };

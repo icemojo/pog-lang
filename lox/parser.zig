@@ -14,7 +14,10 @@ const ParserError = error {
     UnknownPrimaryNode,
     InvalidStringComposition,
     InvalidSyncPosition,
+    InvalidSyncToken,
+    InvalidIdentifierDeclaration,
     DunnoIdentifier,
+    CanSkip,
 
     OutOfMemory,
 };
@@ -36,41 +39,87 @@ pub const Parser = struct {
 
     pub fn parse(self: *Parser, allocator: Allocator) ParserError!std.ArrayList(*ast.Stmt) {
         var statements = std.ArrayList(*ast.Stmt).init(allocator);
-        while (!self.isEnd()) {
-            const stmt = try self.statement(allocator);
-            try statements.append(stmt);
+        parsing: while (!self.isEnd()) {
+            if (self.declaration(allocator)) |stmt| {
+                try statements.append(stmt);
+            } else |err| switch (err) {
+                ParserError.CanSkip => continue :parsing,
+                else => {
+                    debugPrint(self, "Parsing a statement failed with '{}'. Need to synchronize until end of statement.\n", .{ err });
+                    self.synchronize() catch |sync_err| {
+                        debugPrint(self, "Synchronization failed with error '{}'.\n", .{ sync_err });
+                        break :parsing;
+                    };
+                    continue :parsing;
+                }
+            }
         }
         return statements;
     }
 
-    fn statement(self: *Parser, allocator: Allocator) !*ast.Stmt {
-        const print_token = [_]TokenType{ .Print };
-        if (self.advanceIfMatchedAny(&print_token)) {
-            return self.printStatement(allocator);
+    fn declaration(self: *Parser, allocator: Allocator) ParserError!*ast.Stmt {
+        if (self.advanceIfMatchedAny(&[_]TokenType{ .Var })) {
+            return try self.variableDeclareStmt(allocator);
         } else {
-            return self.expressionStatement(allocator);
+            return try self.statement(allocator);
         }
     }
 
-    fn expressionStatement(self: *Parser, allocator: Allocator) !*ast.Stmt {
-        const expr = try self.expression(allocator);
-        _ = self.consume(.Semicolon, "Expect ';' after expression.");
-        const stmt = try ast.createExprStmt(allocator, expr);
-        return stmt;
+    fn variableDeclareStmt(self: *Parser, allocator: Allocator) ParserError!*ast.Stmt {
+        debugPrint(self, "Seems like a variable declaration statement...\n", .{});
+        var parser_result = self.consume(.Identifier, "Expect a valid identifier declaration.");
+        if (parser_result.error_message) |error_message| {
+            self.has_error = true;
+            reportError(parser_result.token, error_message);
+            return error.InvalidIdentifierDeclaration;
+        }
+
+        // TODO(yemon): Do I need to add the 'identifier' to the interpreter state?
+        if (self.advanceIfMatchedAny(&[_]TokenType{ .Equal })) {
+            const initializer = self.expression(allocator) catch null;
+            return try ast.createVariableStmt(allocator, parser_result.token, initializer);
+        } else {
+            self.has_error = true;
+            const current_token = self.peek();
+            reportError(current_token, "Invalid identifier declaration, must be followed by an equal and some form of initializer expression.");
+            return error.InvalidIdentifierDeclaration;
+        }
+
+        parser_result = self.consume(.Semicolon, "Expect an EOL terminator ';' after an identifier declaration expression.");
+        if (parser_result.error_message) |error_message| {
+            self.has_error = true;
+            reportError(parser_result.token, error_message);
+            return error.InvalidIdentifierDeclaration;
+        }
     }
 
-    fn printStatement(self: *Parser, allocator: Allocator) !*ast.Stmt {
+    fn statement(self: *Parser, allocator: Allocator) ParserError!*ast.Stmt {
+        if (self.advanceIfMatchedAny(&[_]TokenType{ .Print })) {
+            return try self.printStmt(allocator);
+        } else {
+            return try self.expressionStmt(allocator);
+        }
+    }
+
+    fn printStmt(self: *Parser, allocator: Allocator) ParserError!*ast.Stmt {
+        debugPrint(self, "Seems like a print statement...\n", .{});
         const expr = try self.expression(allocator);
         _ = self.consume(.Semicolon, "Expect ';' after value.");
         const stmt = try ast.createPrintStmt(allocator, expr);
         return stmt;
     }
 
-    // NOTE(yemon): The expression parser grammar doesn't currently have 
-    // assignments and statements yet.
+    fn expressionStmt(self: *Parser, allocator: Allocator) ParserError!*ast.Stmt {
+        debugPrint(self, "Seems like an expression statement...\n", .{});
+        const expr = try self.expression(allocator);
+        _ = self.consume(.Semicolon, "Expect ';' after expression.");
+        const stmt = try ast.createExprStmt(allocator, expr);
+        return stmt;
+    }
+
     fn expression(self: *Parser, allocator: Allocator) ParserError!*ast.Expr {
         if (self.equality(allocator)) |it| {
-            debugPrint( self, "Root expression done with {s}\n", .{ it.toString(allocator) });
+            debugPrint(self, "Root expression done with {s}\n", .{ it.toString(allocator) });
             return it;
         } else |err| {
             debugPrint(self, "Root expression done with error {}\n", .{ err });
@@ -155,13 +204,18 @@ pub const Parser = struct {
     }
 
     fn primary(self: *Parser, allocator: Allocator) ParserError!*ast.Expr {
-        debugPrint(self, "Primary...\n", .{});
-        const token = self.peek();
+        const current_token = self.peek();
+        debugPrint(self, "Primary... {s}\n", .{ current_token.toString() });
+
+        // if (current_token.isTerminator()) {
+        //     debugPrint(self, "Terminator reached. No need to parse.\n", .{});
+        //     return error.CanSkip;
+        // }
 
         if (self.check(TokenType.Number)) {
             _ = self.advance();
 
-            const literal = if (token.literal) |it| it else "0";
+            const literal = if (current_token.literal) |it| it else "0";
             const int_value = std.fmt.parseInt(i64, literal, 10) catch unreachable;
             const int_lit = try ast.createLiteral(allocator, ast.LiteralExpr{
                 .integer = int_value,
@@ -173,7 +227,7 @@ pub const Parser = struct {
         if (self.check(TokenType.NumberFractional)) {
             _ = self.advance();
 
-            const literal = if (token.literal) |it| it else "0";
+            const literal = if (current_token.literal) |it| it else "0";
             const double_value = std.fmt.parseFloat(f64, literal) catch unreachable;
             const double_lit = try ast.createLiteral(allocator, ast.LiteralExpr{
                 .double = double_value,
@@ -184,7 +238,7 @@ pub const Parser = struct {
 
         if (self.check(TokenType.String)) {
             _ = self.advance();
-            if (token.literal) |literal| {
+            if (current_token.literal) |literal| {
                 const string_lit = try ast.createStringLiteral(allocator, literal);
                 debugPrint(self, "Primary done with string literal. {s}\n", .{ string_lit.toString(allocator) });
                 return string_lit;
@@ -226,24 +280,31 @@ pub const Parser = struct {
 
             // NOTE(yemon): This just handles the error and report it in place.
             // Maybe it should unwind/return over the tree until the "statement boundary" is hit somehow...
-            const parser_error = self.consume(TokenType.RightParen, "Expecting \')\' after the expression.");
-            if (parser_error.error_message) |error_message| {
+            const parser_result = self.consume(TokenType.RightParen, "Expecting \')\' after the expression.");
+            if (parser_result.error_message) |error_message| {
                 self.has_error = true;
-                reportError(parser_error.token, error_message);
+                reportError(parser_result.token, error_message);
             }
 
             debugPrint(self, "Primary done with group. {s}\n", .{ group.toString(allocator) });
             return group;
         }
 
-        debugPrint(self, "Primary done with error.\n", .{});
+        if (self.check(TokenType.Identifier)) {
+            _ = self.advance();
+            const variable = try ast.createVariableExpr(allocator, current_token);
+            debugPrint(self, "Primary done with variable identifier. {s}\n", .{ variable.toString(allocator) });
+            return variable;
+        }
+
+        debugPrint(self, "Primary done with error on token: {s}.\n", .{ current_token.toString() });
         return error.UnknownPrimaryNode;
     }
 
     // NOTE(yemon): This'll usually get called right after `ParserError` is hit.
     // The easiest synchronization point is at the 'statement boundaries',
     // ie., between ';' and the start of next statement keywords.
-    fn synchronize(self: *Parser) !void {
+    fn synchronize(self: *Parser) ParserError!void {
         _ = self.advance();
         while (!self.isEnd()) : (_ = self.advance()) {
             if (self.previous()) |it| {
@@ -251,18 +312,19 @@ pub const Parser = struct {
                     return;
                 }
             } else {
-                return error.InvalidSyncPosition;
+                return ParserError.InvalidSyncPosition;
             }
 
-            switch (self.peek()) {
+            switch (self.peek().token_type) {
                 .Class => return,
-                .Fun => return,
+                .Function => return,
                 .Var => return,
                 .If => return,
                 .For => return,
                 .While => return,
                 .Print => return,
                 .Return => return,
+                else => return ParserError.InvalidSyncToken,
             }
         }
     }
@@ -302,35 +364,40 @@ pub const Parser = struct {
         }
     }
 
-    fn advance(self: *Parser) Token {
+    fn advance(self: *Parser) ?Token {
         if (!self.isEnd()) {
             self.current += 1;
             return self.tokens.*.items[self.current];
         } else {
-            if (self.previous()) |it| {
-                return it;
-            } else {
-                return .{
-                    .token_type = .Invalid,
-                    .lexeme = null,
-                    .literal = null,
-                    .line = 0,
-                };
-            }
+            return null;
         }
     }
 
     fn consume(self: *Parser, token_type: TokenType, error_message: []const u8) ParserResult {
         if (self.check(token_type)) {
-            const token = self.advance();
-            return .{
-                .token = token,
-                .error_message = null,
-            };
+            if (self.advance()) |next_token| {
+                return .{
+                    .token = next_token,
+                    .error_message = null,
+                };
+            } else {
+                const current_token = self.peek();
+                const buffer: []u8 = undefined;
+                const message = 
+                    std.fmt.bufPrint(
+                        buffer, 
+                        "Unable to consume current token from {s}.", 
+                        .{ current_token.toString() }) 
+                    catch "No space left even to compose an error message.";
+                return .{
+                    .token = current_token,
+                    .error_message = message,
+                };
+            }
         } else {
-            const next_token = self.peek();
+            const current_token = self.peek();
             return .{
-                .token = next_token,
+                .token = current_token,
                 .error_message = error_message,
             };
         }

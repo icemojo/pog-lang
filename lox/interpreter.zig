@@ -215,6 +215,7 @@ const EvaluationError = error {
 const RuntimeError = error {
     InvalidUnaryOperand,
     InvalidBinaryOperands,
+    UninitializedVariable,
 };
 
 pub fn execute(allocator: Allocator, statements: std.ArrayList(*ast.Stmt)) (EvaluationError || RuntimeError)!void {
@@ -225,12 +226,19 @@ pub fn execute(allocator: Allocator, statements: std.ArrayList(*ast.Stmt)) (Eval
 
 fn evaluateStatement(allocator: Allocator, stmt: *const ast.Stmt) (EvaluationError || RuntimeError)!void {
     switch (stmt.*) {
-        .expr => |expr| {
-            _ = try evaluate(allocator, expr.expr);
+        .variable => |variable| {
+            if (variable.initializer) |initializer| {
+                _ = try evaluate(allocator, initializer);
+            } else {
+                return RuntimeError.UninitializedVariable;
+            }
         },
         .print => |print| {
             const value = try evaluate(allocator, print.expr);
             debug.print("{s}\n", .{ value.toString(allocator) });
+        },
+        .expr => |expr| {
+            _ = try evaluate(allocator, expr.expr);
         },
     }
 }
@@ -248,6 +256,11 @@ fn evaluate(allocator: Allocator, expr: *const ast.Expr) (EvaluationError || Run
         },
         .literal => |literal| {
             return literal.evaluate(allocator);
+        },
+        .variable => |variable| {
+            _ = variable;
+            // TODO(yemon): What do I do here, exactly?!
+            return EvaluationError.NotDoneYet;
         },
     }
 }

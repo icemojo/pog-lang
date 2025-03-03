@@ -11,7 +11,6 @@ const interpreter = @import("interpreter.zig");
 pub fn main() void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     var options = opt.parseOptions(gpa.allocator());
-    options.verbose = true;
 
     // NOTE(yemon): Maybe the repl could use an arena allocator, 
     // which can essentially reset after every execution.
@@ -76,10 +75,13 @@ fn run(allocator: Allocator, source: []const u8, options: *const opt.Options) vo
         }
     }
 
+    var parser = Parser.init(&scanner.tokens);
+    if (options.verbose) {
+        parser.debug_print = true;
+    }
     // NOTE(yemon): `ParserError` is being printed out here temporarily.
     // Idealy, the parser should handle the error states internally, and 
     // shouldn't bubble up at all.
-    var parser = Parser.init(&scanner.tokens);
     const statements = parser.parse(allocator) catch |err| {
         debug.print("Error when parsing the expression tree: {}\n", .{ err });
         return;
