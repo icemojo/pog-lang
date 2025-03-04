@@ -11,7 +11,7 @@ const ast       = @import("ast.zig");
 // recursive function calls. So, Zig needs an explicit error 
 // definition with all possible errors from the call stack merged.
 const ParserError = error {
-    UnknownPrimaryNode,
+    UnknownPrimaryToken,
     InvalidStringComposition,
     InvalidSyncPosition,
     InvalidSyncToken,
@@ -43,17 +43,22 @@ pub const Parser = struct {
             if (self.declaration(allocator)) |stmt| {
                 try statements.append(stmt);
             } else |err| switch (err) {
-                ParserError.CanSkip => continue :parsing,
+                ParserError.CanSkip => {
+                    debugPrint(self, "Current token {s} will be skipped.\n", .{ self.peek().toString() });
+                    _ = self.advance();
+                    continue :parsing;
+                },
                 else => {
-                    debugPrint(self, "Parsing a statement failed with '{}'. Need to synchronize until end of statement.\n", .{ err });
+                    errorPrint(self, "Parsing a statement failed with '{}'. Need to synchronize until end of statement.\n", .{ err });
                     self.synchronize() catch |sync_err| {
-                        debugPrint(self, "Synchronization failed with error '{}'.\n", .{ sync_err });
+                        errorPrint(self, "Synchronization failed with error '{}'.\n", .{ sync_err });
                         break :parsing;
                     };
                     continue :parsing;
                 }
             }
         }
+        debugPrint(self, "End of all the statements.\n", .{});
         return statements;
     }
 
@@ -75,9 +80,10 @@ pub const Parser = struct {
         }
 
         // TODO(yemon): Do I need to add the 'identifier' to the interpreter state?
+        const identifier = parser_result.token;
         if (self.advanceIfMatchedAny(&[_]TokenType{ .Equal })) {
             const initializer = self.expression(allocator) catch null;
-            return try ast.createVariableStmt(allocator, parser_result.token, initializer);
+            return try ast.createVariableStmt(allocator, identifier, initializer);
         } else {
             self.has_error = true;
             const current_token = self.peek();
@@ -207,10 +213,10 @@ pub const Parser = struct {
         const current_token = self.peek();
         debugPrint(self, "Primary... {s}\n", .{ current_token.toString() });
 
-        // if (current_token.isTerminator()) {
-        //     debugPrint(self, "Terminator reached. No need to parse.\n", .{});
-        //     return error.CanSkip;
-        // }
+        if (current_token.isTerminator()) {
+            debugPrint(self, "Terminator reached. No need to parse.\n", .{});
+            return error.CanSkip;
+        }
 
         if (self.check(TokenType.Number)) {
             _ = self.advance();
@@ -298,18 +304,21 @@ pub const Parser = struct {
         }
 
         debugPrint(self, "Primary done with error on token: {s}.\n", .{ current_token.toString() });
-        return error.UnknownPrimaryNode;
+        return error.UnknownPrimaryToken;
     }
 
-    // NOTE(yemon): This'll usually get called right after `ParserError` is hit.
-    // The easiest synchronization point is at the 'statement boundaries',
+    // NOTE(yemon): The easiest synchronization point is at the 'statement boundaries',
     // ie., between ';' and the start of next statement keywords.
     fn synchronize(self: *Parser) ParserError!void {
         _ = self.advance();
+        debugPrint(self, "Syncing from token {}...\n", .{ self.peek().token_type });
         while (!self.isEnd()) : (_ = self.advance()) {
             if (self.previous()) |it| {
                 if (it.token_type == .Semicolon) {
+                    debugPrint(self, "Already passed the end of statement. Nothing to sync.\n", .{});
                     return;
+                } else {
+                    return ParserError.InvalidSyncPosition;
                 }
             } else {
                 return ParserError.InvalidSyncPosition;
@@ -327,6 +336,7 @@ pub const Parser = struct {
                 else => return ParserError.InvalidSyncToken,
             }
         }
+        debugPrint(self, "Synced with statement boundary.\n", .{});
     }
 
 // -----------------------------------------------------------------------------
@@ -448,5 +458,11 @@ fn debugPrint(self: *const Parser, comptime fmt: []const u8, args: anytype) void
     if (!self.debug_print) {
         return;
     }
+    debug.print(fmt, args);
+}
+
+// TODO(yemon): error reporting really needs a proper structure
+fn errorPrint(self: *const Parser, comptime fmt: []const u8, args: anytype) void {
+    _ = self;
     debug.print(fmt, args);
 }
