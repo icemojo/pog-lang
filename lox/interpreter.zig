@@ -216,58 +216,99 @@ const RuntimeError = error {
     InvalidUnaryOperand,
     InvalidBinaryOperands,
     UninitializedVariable,
+    UndefinedVariable,
 };
 
-pub fn execute(allocator: Allocator, statements: std.ArrayList(*ast.Stmt)) (EvaluationError || RuntimeError)!void {
-    for (statements.items) |stmt| {
-        try evaluateStatement(allocator, stmt);
-    }
-}
+pub const Interpreter = struct {
+    debug_print: bool,
+    debug_env: bool,
+    env: Environment,
 
-fn evaluateStatement(allocator: Allocator, stmt: *const ast.Stmt) (EvaluationError || RuntimeError)!void {
-    switch (stmt.*) {
-        .variable => |variable| {
-            if (variable.initializer) |initializer| {
-                _ = try evaluate(allocator, initializer);
-            } else {
-                return RuntimeError.UninitializedVariable;
+    pub fn init(allocator: Allocator) Interpreter {
+        return .{
+            .debug_print = false,
+            .debug_env = false,
+            .env = Environment.init(allocator),
+        };
+    }
+
+    fn initBuiltins(self: *Interpreter) void {
+        _ = self;
+        // TODO(yemon): `__env__`, `__name__` so on and so forth...
+    }
+    
+    pub fn executeAll(self: *Interpreter, allocator: Allocator, statements: std.ArrayList(*ast.Stmt)) (EvaluationError || RuntimeError)!void {
+        for (statements.items) |stmt| {
+            try self.evaluateStatement(allocator, stmt);
+            if (self.debug_env) {
+                self.env.display(allocator);
             }
-        },
-        .print => |print| {
-            const value = try evaluate(allocator, print.expr);
-            debug.print("{s}\n", .{ value.toString(allocator) });
-        },
-        .expr => |expr| {
-            _ = try evaluate(allocator, expr.expr);
-        },
+        }
     }
-}
 
-fn evaluate(allocator: Allocator, expr: *const ast.Expr) (EvaluationError || RuntimeError)!Value {
+    fn evaluateStatement(self: *Interpreter, allocator: Allocator, stmt: *const ast.Stmt) (EvaluationError || RuntimeError)!void {
+        switch (stmt.*) {
+            .variable => |variable| {
+                debug.print("Evaluating variable statement...\n", .{});
+                const name = variable.identifier.lexeme.?;
+                if (variable.initializer) |initializer| {
+                    const value = try evaluate(self, allocator, initializer);
+                    try self.env.define(name, value);
+                } else {
+                    try self.env.define(name, Value{ .nil = true });
+                }
+            },
+
+            .print => |print| {
+                debug.print("Evaluating print statement...\n", .{});
+                const value = try evaluate(self, allocator, print.expr);
+                debug.print("{s}\n", .{ value.toString(allocator) });
+            },
+            .expr => |expr| {
+                debug.print("Evaluating expression...\n", .{});
+                _ = try evaluate(self, allocator, expr.expr);
+            },
+        }
+    }
+};
+
+fn evaluate(self: *const Interpreter, allocator: Allocator, expr: *const ast.Expr) (EvaluationError || RuntimeError)!Value {
     switch (expr.*) {
         .binary => |binary| {
-            return try evaluateBinaryExpr(allocator, &binary);
+            return try evaluateBinaryExpr(self, allocator, &binary);
         },
         .unary => |unary| {
-            return try evaluateUnaryExpr(allocator, &unary);
+            return try evaluateUnaryExpr(self, allocator, &unary);
         },
         .grouping => |group| {
-            return try evaluate(allocator, group.inner);
+            return try evaluate(self, allocator, group.inner);
         },
         .literal => |literal| {
             return literal.evaluate(allocator);
         },
+
+        // NOTE(yemon): Not sure how to do with error handling here,
+        // this switch branch know everything that could go wrong with the variable, 
+        // but since the function itself is error-returned, the branch cannot choose
+        // to return nothing if the error is already handled locally.
+        // Other info related to the error (like 'lexeme') cannot be passed back
+        // to the caller.
         .variable => |variable| {
-            _ = variable;
-            // TODO(yemon): What do I do here, exactly?!
-            return EvaluationError.NotDoneYet;
+            const name = variable.lexeme.?;
+            return self.env.get(name) catch |err| switch (err) {
+                RuntimeError.UndefinedVariable => {
+                    debug.print("Undefined variable '{s}'.\n", .{ name });
+                    return Value{ .nil = true };
+                },
+                else => return err,
+            };
         },
     }
 }
 
-fn evaluateBinaryExpr(allocator: Allocator, binary: *const ast.BinaryExpr) (EvaluationError || RuntimeError)!Value {
-    const left_value = try evaluate(allocator, binary.left);
-    const right_value = try evaluate(allocator, binary.right);
+fn evaluateBinaryExpr(self: *const Interpreter, allocator: Allocator, binary: *const ast.BinaryExpr) (EvaluationError || RuntimeError)!Value {
+    const left_value = try evaluate(self, allocator, binary.left);
+    const right_value = try evaluate(self, allocator, binary.right);
 
     switch (binary.optr.token_type) { 
         .Minus => {
@@ -330,8 +371,8 @@ fn evaluateBinaryExpr(allocator: Allocator, binary: *const ast.BinaryExpr) (Eval
     }
 }
 
-fn evaluateUnaryExpr(allocator: Allocator, unary: *const ast.UnaryExpr) (EvaluationError || RuntimeError)!Value {
-    const value = try evaluate(allocator, unary.right);
+fn evaluateUnaryExpr(self: *const Interpreter, allocator: Allocator, unary: *const ast.UnaryExpr) (EvaluationError || RuntimeError)!Value {
+    const value = try evaluate(self, allocator, unary.right);
 
     switch (unary.optr.token_type) {
         .Minus => {
@@ -369,4 +410,44 @@ fn evaluateUnaryExpr(allocator: Allocator, unary: *const ast.UnaryExpr) (Evaluat
             return value;
         }
     }
+}
+
+const Environment = struct {
+    values: std.StringHashMap(Value),
+
+    fn init(allocator: Allocator) Environment {
+        return .{
+            .values = std.StringHashMap(Value).init(allocator),
+        };
+    }
+
+    fn define(self: *Environment, name: []const u8, value: Value) !void {
+        try self.values.put(name, value);
+    }
+
+    fn get(self: *const Environment, name: []const u8) !Value {
+        if (self.values.get(name)) |value| {
+            return value;
+        } else {
+            return RuntimeError.UndefinedVariable;
+        }
+    }
+
+    fn display(self: *const Environment, allocator: Allocator) void {
+        var iter = self.values.iterator();
+        debug.print("[Env: ", .{});
+        while (iter.next()) |entry| {
+            const name = entry.key_ptr.*;
+            const value = entry.value_ptr.*;
+            debug.print("{s}={s} | ", .{ name, value.toString(allocator) });
+        }
+        debug.print("]\n", .{});
+    }
+};
+
+fn debugPrint(self: *const Interpreter, fmt: []const u8, args: anytype) void {
+    if (!self.debug_print) {
+        return;
+    }
+    debug.print(fmt, args);
 }

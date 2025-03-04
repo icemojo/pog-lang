@@ -6,7 +6,7 @@ const opt         = @import("options.zig");
 const lexer       = @import("lexer.zig");
 const ast         = @import("ast.zig");
 const Parser      = @import("parser.zig").Parser;
-const interpreter = @import("interpreter.zig");
+const Interpreter = @import("interpreter.zig").Interpreter;
 
 pub fn main() void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -52,6 +52,9 @@ const Repl = struct {
             if (input.len == 0) {
                 continue;
             } else {
+                // TODO(yemon): this is holding an interpreter instance right now,
+                // with all the allocations and everything responsible for it.
+                // Maybe I should pull the interpreter out of the REPL loop.
                 run(allocator, input, options);
             }
             defer allocator.free(input_buffer);
@@ -76,9 +79,7 @@ fn run(allocator: Allocator, source: []const u8, options: *const opt.Options) vo
     }
 
     var parser = Parser.init(&scanner.tokens);
-    if (options.verbose) {
-        parser.debug_print = true;
-    }
+    parser.debug_print = options.verbose;
     // NOTE(yemon): `ParserError` is being printed out here temporarily.
     // Idealy, the parser should handle the error states internally, and 
     // shouldn't bubble up at all.
@@ -87,7 +88,10 @@ fn run(allocator: Allocator, source: []const u8, options: *const opt.Options) vo
         return;
     };
 
-    interpreter.execute(allocator, statements) catch |err| {
+    var interpreter = Interpreter.init(allocator);
+    interpreter.debug_print = options.verbose;
+    interpreter.debug_env = options.verbose;
+    interpreter.executeAll(allocator, statements) catch |err| {
         debug.print("Runtime error occured:\n", .{});
         debug.print("{}\n", .{ err });
         return;

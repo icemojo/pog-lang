@@ -79,8 +79,8 @@ pub const Parser = struct {
             return error.InvalidIdentifierDeclaration;
         }
 
-        // TODO(yemon): Do I need to add the 'identifier' to the interpreter state?
         const identifier = parser_result.token;
+        debug.print("Identifier name is {s}\n", .{ identifier.lexeme.? });
         if (self.advanceIfMatchedAny(&[_]TokenType{ .Equal })) {
             const initializer = self.expression(allocator) catch null;
             return try ast.createVariableStmt(allocator, identifier, initializer);
