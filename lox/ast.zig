@@ -230,42 +230,66 @@ pub const Stmt = union(enum) {
     variable: VariableStmt,
     print: PrintStmt,
     expr: ExprStmt,
+
+    pub fn toString(self: Stmt, allocator: Allocator) []const u8 {
+        switch (self) {
+            .variable => |variable| {
+                return variable.toString(allocator);
+            },
+            .print => |print| {
+                return print.toString(allocator);
+            },
+            .expr => |expr| {
+                return expr.toString(allocator);
+            },
+        }
+    }
 };
 
 pub const VariableStmt = struct {
-    identifier: Token,
+    name: []u8,
     initializer: ?*Expr,
 
     fn toString(self: *const VariableStmt, allocator: Allocator) []const u8 {
-        const name = self.name.toString();
         if (self.initializer) |initializer| {
-            const str = std.fmt.allocPrint(allocator, "var {s} = {s};", .{ name, initializer.toString(allocator) });
+            const str = std.fmt.allocPrint(allocator, "var {s} = {s};", .{ self.name, initializer.*.toString(allocator) }) catch "-";
             return str;
         } else {
-            const str = std.fmt.allocPrint(allocator, "var {s}", .{ name });
+            const str = std.fmt.allocPrint(allocator, "var {s};", .{ self.name }) catch "-";
             return str;
         }
     }
 };
 
-pub fn createVariableStmt(allocator: Allocator, identifier: Token, initializer: ?*Expr) !*Stmt {
-    const stmt = try allocator.create(Stmt);
-    stmt.* = Stmt{
-        .variable = VariableStmt{
-            .identifier = identifier,
-            .initializer = initializer,
-        },
-    };
-    return stmt;
+pub const AllocError = error {
+    OutOfMemory,
+};
+
+pub fn createVariableStmt(allocator: Allocator, identifier: Token, initializer: ?*Expr) AllocError!*Stmt {
+    if (identifier.lexeme) |lexeme| {
+        const target_name = try allocator.alloc(u8, lexeme.len);
+        @memcpy(target_name, lexeme);
+
+        const stmt = try allocator.create(Stmt);
+        stmt.* = Stmt{
+            .variable = VariableStmt{
+                .name = target_name,
+                .initializer = initializer,
+            },
+        };
+        return stmt;
+    } else {
+        return AllocError.OutOfMemory;
+    }
 }
 
 pub const PrintStmt = struct {
     expr: *Expr,
 
     fn toString(self: *const PrintStmt, allocator: Allocator) []const u8 {
-        const str = try std.fmt.allocPrint(allocator, "print {s};\n", .{ 
+        const str = std.fmt.allocPrint(allocator, "print {s};\n", .{ 
             self.expr.*.toString(allocator) 
-        });
+        }) catch "print -";
         return str;
     }
 };
@@ -284,9 +308,9 @@ pub const ExprStmt = struct {
     expr: *Expr,
 
     fn toString(self: *const ExprStmt, allocator: Allocator) []const u8 {
-        const str = try std.fmt.allocPrint(allocator, "{s};\n", .{ 
+        const str = std.fmt.allocPrint(allocator, "{s};\n", .{ 
             self.expr.*.toString(allocator) 
-        });
+        }) catch "-";
         return str;
     }
 };

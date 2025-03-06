@@ -240,7 +240,9 @@ pub const Interpreter = struct {
     pub fn executeAll(self: *Interpreter, allocator: Allocator, statements: std.ArrayList(*ast.Stmt)) (EvaluationError || RuntimeError)!void {
         for (statements.items) |stmt| {
             try self.evaluateStatement(allocator, stmt);
+            debugPrint(self, "{} items in environment.\n", .{ self.env.values.count() });
             if (self.debug_env) {
+                // debug.print("{}\n", .{ self.env });
                 self.env.display(allocator);
             }
         }
@@ -250,12 +252,11 @@ pub const Interpreter = struct {
         switch (stmt.*) {
             .variable => |variable| {
                 debugPrint(self, "Evaluating variable statement...\n", .{});
-                const name = variable.identifier.lexeme.?;
                 if (variable.initializer) |initializer| {
                     const value = try evaluate(self, allocator, initializer);
-                    try self.env.define(name, value);
+                    try self.env.define(variable.name, value);
                 } else {
-                    try self.env.define(name, Value{ .nil = true });
+                    try self.env.define(variable.name, Value{ .nil = true });
                 }
             },
 
@@ -433,13 +434,13 @@ const Environment = struct {
         }
     }
 
-    fn display(self: *const Environment, allocator: Allocator) void {
-        var iter = self.values.iterator();
+    fn display(self: *Environment, allocator: Allocator) void {
         debug.print("[Env: ", .{});
+        var iter = self.values.iterator();
         while (iter.next()) |entry| {
-            const name = entry.key_ptr.*;
+            const key = entry.key_ptr.*;
             const value = entry.value_ptr.*;
-            debug.print("{s}={s} | ", .{ name, value.toString(allocator) });
+            debug.print("{s}={s} | ", .{ key, value.toString(allocator) });
         }
         debug.print("]\n", .{});
     }

@@ -73,18 +73,21 @@ pub const Parser = struct {
         if (parser_result.error_message) |error_message| {
             self.has_error = true;
             reportError(parser_result.token, error_message);
-            return error.InvalidIdentifierDeclaration;
+            return ParserError.InvalidIdentifierDeclaration;
         }
 
         var var_stmt: *ast.Stmt = undefined;
-        const identifier = parser_result.token;
+        const identifier: Token = parser_result.token;
         debugPrint(self, "Identifier name is '{s}'\n", .{ identifier.lexeme.? });
+        var initializer: ?*ast.Expr = null;
         if (self.advanceIfMatched(.Equal)) {
-            const initializer = try self.expression(allocator);
-            var_stmt = try ast.createVariableStmt(allocator, identifier, initializer);
-        } else {
-            var_stmt = try ast.createVariableStmt(allocator, identifier, null);
+            initializer = try self.expression(allocator);
         }
+        var_stmt = ast.createVariableStmt(allocator, identifier, initializer) catch |err| switch (err) {
+            ast.AllocError.OutOfMemory => {
+                return ParserError.OutOfMemory;
+            },
+        };
 
         // TODO(yemon): this would cause REPL to report an error if the statement 
         // being entered didn't get terminated with ';'
@@ -92,7 +95,7 @@ pub const Parser = struct {
         if (parser_result.error_message) |error_message| {
             self.has_error = true;
             reportError(parser_result.token, error_message);
-            return error.InvalidIdentifierDeclaration;
+            return ParserError.InvalidIdentifierDeclaration;
         }
 
         return var_stmt;
