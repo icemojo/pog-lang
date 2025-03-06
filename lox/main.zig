@@ -15,7 +15,12 @@ pub fn main() void {
     // NOTE(yemon): Maybe the repl could use an arena allocator, 
     // which can essentially reset after every execution.
     const allocator = gpa.allocator();
-    var repl = Repl.init();
+
+    var interpreter = Interpreter.init(allocator);
+    interpreter.debug_print = options.verbose;
+    interpreter.debug_env = options.show_env;
+
+    var repl = Repl.init(&interpreter);
     if (options.repl_start) {
         repl.start(allocator, &options);
     } else {
@@ -24,11 +29,13 @@ pub fn main() void {
 }
 
 const Repl = struct {
+    interpreter: *Interpreter,
     has_errors: bool,
     should_quit: bool,
 
-    fn init() Repl {
+    fn init(interpreter: *Interpreter) Repl {
         return .{
+            .interpreter = interpreter,
             .has_errors = false,
             .should_quit = false,
         };
@@ -54,10 +61,7 @@ const Repl = struct {
             if (input.len == 0) {
                 continue;
             } else {
-                // TODO(yemon): this is holding an interpreter instance right now,
-                // with all the allocations and everything responsible for it.
-                // Maybe I should pull the interpreter out of the REPL loop.
-                run(allocator, input, options);
+                run(allocator, self.interpreter, input, options);
             }
             defer allocator.free(input_buffer);
         }
@@ -70,7 +74,7 @@ fn runFile(allocator: Allocator, options: *const opt.Options) void {
     debug.print("TODO(yemon): WIP on the runFile(..) function on the given script\n", .{});
 }
 
-fn run(allocator: Allocator, source: []const u8, options: *const opt.Options) void {
+fn run(allocator: Allocator, interpreter: *Interpreter, source: []const u8, options: *const opt.Options) void {
     var scanner = lexer.Scanner.init(allocator, source, options.verbose);
     scanner.startScanning();
 
@@ -90,9 +94,6 @@ fn run(allocator: Allocator, source: []const u8, options: *const opt.Options) vo
         return;
     };
 
-    var interpreter = Interpreter.init(allocator);
-    interpreter.debug_print = options.verbose;
-    interpreter.debug_env = options.verbose;
     interpreter.executeAll(allocator, statements) catch |err| {
         debug.print("Runtime error occured:\n", .{});
         debug.print("{}\n", .{ err });

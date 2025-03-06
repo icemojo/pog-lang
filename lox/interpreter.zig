@@ -249,7 +249,7 @@ pub const Interpreter = struct {
     fn evaluateStatement(self: *Interpreter, allocator: Allocator, stmt: *const ast.Stmt) (EvaluationError || RuntimeError)!void {
         switch (stmt.*) {
             .variable => |variable| {
-                debug.print("Evaluating variable statement...\n", .{});
+                debugPrint(self, "Evaluating variable statement...\n", .{});
                 const name = variable.identifier.lexeme.?;
                 if (variable.initializer) |initializer| {
                     const value = try evaluate(self, allocator, initializer);
@@ -260,12 +260,12 @@ pub const Interpreter = struct {
             },
 
             .print => |print| {
-                debug.print("Evaluating print statement...\n", .{});
+                debugPrint(self, "Evaluating print statement...\n", .{});
                 const value = try evaluate(self, allocator, print.expr);
                 debug.print("{s}\n", .{ value.toString(allocator) });
             },
             .expr => |expr| {
-                debug.print("Evaluating expression...\n", .{});
+                debugPrint(self, "Evaluating expression...\n", .{});
                 _ = try evaluate(self, allocator, expr.expr);
             },
         }
@@ -445,7 +445,7 @@ const Environment = struct {
     }
 };
 
-fn debugPrint(self: *const Interpreter, fmt: []const u8, args: anytype) void {
+fn debugPrint(self: *const Interpreter, comptime fmt: []const u8, args: anytype) void {
     if (!self.debug_print) {
         return;
     }

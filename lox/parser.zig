@@ -78,7 +78,7 @@ pub const Parser = struct {
 
         var var_stmt: *ast.Stmt = undefined;
         const identifier = parser_result.token;
-        debug.print("Identifier name is '{s}'\n", .{ identifier.lexeme.? });
+        debugPrint(self, "Identifier name is '{s}'\n", .{ identifier.lexeme.? });
         if (self.advanceIfMatched(.Equal)) {
             const initializer = try self.expression(allocator);
             var_stmt = try ast.createVariableStmt(allocator, identifier, initializer);

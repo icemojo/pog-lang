@@ -6,6 +6,7 @@ pub const Options = struct {
     verbose: bool,
     show_help: bool,
     show_tokens: bool,
+    show_env: bool,
     repl_start: bool,
 };
 
@@ -20,6 +21,7 @@ pub fn parseOptions(allocator: Allocator) Options {
         .verbose = false,
         .show_help = false,
         .show_tokens = false,
+        .show_env = false,
         .repl_start = false,
     };
     var unknowns = std.ArrayList([]u8).init(allocator);
@@ -34,6 +36,10 @@ pub fn parseOptions(allocator: Allocator) Options {
         }
         if (eql(u8, arg, "-t") or eql(u8, arg, "--tokenize")) {
             options.show_tokens = true;
+            continue;
+        }
+        if (eql(u8, arg, "-e") or eql(u8, arg, "--env")) {
+            options.show_env = true;
             continue;
         }
         if (eql(u8, arg, "-r") or eql(u8, arg, "--repl")) {

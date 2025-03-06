@@ -68,6 +68,7 @@ pub const Token = struct {
     pub fn isTerminator(self: *const Token) bool {
         return switch (self.token_type) {
             .Eof => true,
+            .Eol => true,
             .Semicolon => true,
             else => false,
         };
