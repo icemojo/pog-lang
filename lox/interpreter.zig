@@ -217,6 +217,7 @@ const RuntimeError = error {
     InvalidBinaryOperands,
     UninitializedVariable,
     UndefinedVariable,
+    AlreadyDefinedVariable,
 };
 
 pub const Interpreter = struct {
@@ -423,6 +424,9 @@ const Environment = struct {
     }
 
     fn define(self: *Environment, name: []const u8, value: Value) !void {
+        if (self.alreadyDefined(name)) {
+            return RuntimeError.AlreadyDefinedVariable;
+        }
         try self.values.put(name, value);
     }
 
@@ -431,6 +435,14 @@ const Environment = struct {
             return value;
         } else {
             return RuntimeError.UndefinedVariable;
+        }
+    }
+
+    fn alreadyDefined(self: *const Environment, name: []const u8) bool {
+        if (self.values.get(name)) |_| {
+            return true;
+        } else {
+            return false;
         }
     }
 
