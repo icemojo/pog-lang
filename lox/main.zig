@@ -39,7 +39,9 @@ const Repl = struct {
 
         debug.print("Lox interpreter in Zig\n", .{});
         debug.print("(Use -h to print out the available options)\n", .{});
-        debug.print("(Verbose mode -v turned on during development)\n", .{});
+        if (options.verbose) {
+            debug.print("(Verbose mode -v turned on.)\n", .{});
+        }
 
         const buffer_size = 1024;
         var input_buffer: []u8 = undefined;

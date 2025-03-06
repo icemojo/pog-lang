@@ -42,20 +42,13 @@ pub const Parser = struct {
         parsing: while (!self.isEnd()) {
             if (self.declaration(allocator)) |stmt| {
                 try statements.append(stmt);
-            } else |err| switch (err) {
-                ParserError.CanSkip => {
-                    debugPrint(self, "Current token {s} will be skipped.\n", .{ self.peek().toString() });
-                    _ = self.advance();
-                    continue :parsing;
-                },
-                else => {
-                    errorPrint(self, "Parsing a statement failed with '{}'. Need to synchronize until end of statement.\n", .{ err });
-                    self.synchronize() catch |sync_err| {
-                        errorPrint(self, "Synchronization failed with error '{}'.\n", .{ sync_err });
-                        break :parsing;
-                    };
-                    continue :parsing;
-                }
+            } else |err| {
+                errorPrint(self, "Parsing a statement failed with '{}'. Need to synchronize until end of statement.\n", .{ err });
+                self.synchronize() catch |sync_err| {
+                    errorPrint(self, "Synchronization failed with error '{}'.\n", .{ sync_err });
+                    break :parsing;
+                };
+                continue :parsing;
             }
         }
         debugPrint(self, "End of all the statements.\n", .{});
@@ -63,10 +56,14 @@ pub const Parser = struct {
     }
 
     fn declaration(self: *Parser, allocator: Allocator) ParserError!*ast.Stmt {
-        if (self.advanceIfMatchedAny(&[_]TokenType{ .Var })) {
+        if (self.advanceIfMatched(.Var)) {
             return try self.variableDeclareStmt(allocator);
         } else {
-            return try self.statement(allocator);
+            if (self.advanceIfMatched(.Print)) {
+                return try self.printStmt(allocator);
+            } else {
+                return try self.expressionStmt(allocator);
+            }
         }
     }
 
@@ -79,32 +76,26 @@ pub const Parser = struct {
             return error.InvalidIdentifierDeclaration;
         }
 
+        var var_stmt: *ast.Stmt = undefined;
         const identifier = parser_result.token;
-        debug.print("Identifier name is {s}\n", .{ identifier.lexeme.? });
-        if (self.advanceIfMatchedAny(&[_]TokenType{ .Equal })) {
-            const initializer = self.expression(allocator) catch null;
-            return try ast.createVariableStmt(allocator, identifier, initializer);
+        debug.print("Identifier name is '{s}'\n", .{ identifier.lexeme.? });
+        if (self.advanceIfMatched(.Equal)) {
+            const initializer = try self.expression(allocator);
+            var_stmt = try ast.createVariableStmt(allocator, identifier, initializer);
         } else {
-            self.has_error = true;
-            const current_token = self.peek();
-            reportError(current_token, "Invalid identifier declaration, must be followed by an equal and some form of initializer expression.");
-            return error.InvalidIdentifierDeclaration;
+            var_stmt = try ast.createVariableStmt(allocator, identifier, null);
         }
 
+        // TODO(yemon): this would cause REPL to report an error if the statement 
+        // being entered didn't get terminated with ';'
         parser_result = self.consume(.Semicolon, "Expect an EOL terminator ';' after an identifier declaration expression.");
         if (parser_result.error_message) |error_message| {
             self.has_error = true;
             reportError(parser_result.token, error_message);
             return error.InvalidIdentifierDeclaration;
         }
-    }
 
-    fn statement(self: *Parser, allocator: Allocator) ParserError!*ast.Stmt {
-        if (self.advanceIfMatchedAny(&[_]TokenType{ .Print })) {
-            return try self.printStmt(allocator);
-        } else {
-            return try self.expressionStmt(allocator);
-        }
+        return var_stmt;
     }
 
     fn printStmt(self: *Parser, allocator: Allocator) ParserError!*ast.Stmt {
@@ -212,11 +203,6 @@ pub const Parser = struct {
     fn primary(self: *Parser, allocator: Allocator) ParserError!*ast.Expr {
         const current_token = self.peek();
         debugPrint(self, "Primary... {s}\n", .{ current_token.toString() });
-
-        if (current_token.isTerminator()) {
-            debugPrint(self, "Terminator reached. No need to parse.\n", .{});
-            return error.CanSkip;
-        }
 
         if (self.check(TokenType.Number)) {
             _ = self.advance();
@@ -341,6 +327,17 @@ pub const Parser = struct {
 
 // -----------------------------------------------------------------------------
 
+    fn advanceIfMatched(self: *Parser, token_type: TokenType) bool {
+        if (self.isEnd()) {
+            return false;
+        }
+        if (self.peek().token_type == token_type) {
+            _ = self.advance();
+            return true;
+        }
+        return false;
+    }
+
     fn advanceIfMatchedAny(self: *Parser, token_types: []const TokenType) bool {
         for (token_types) |token_type| {
             if (self.isEnd()) {
@@ -384,14 +381,16 @@ pub const Parser = struct {
     }
 
     fn consume(self: *Parser, token_type: TokenType, error_message: []const u8) ParserResult {
-        if (self.check(token_type)) {
+        const current_token = self.peek();
+        if (current_token.token_type == token_type) {
             if (self.advance()) |next_token| {
+                debugPrint(self, "Consumed '{s}', next token waiting is '{s}'\n", 
+                    .{ current_token.toString(), next_token.toString() });
                 return .{
-                    .token = next_token,
+                    .token = current_token,
                     .error_message = null,
                 };
             } else {
-                const current_token = self.peek();
                 const buffer: []u8 = undefined;
                 const message = 
                     std.fmt.bufPrint(
@@ -405,7 +404,7 @@ pub const Parser = struct {
                 };
             }
         } else {
-            const current_token = self.peek();
+            debugPrint(self, "Unable to consume token type '{}', returning the current one instead '{s}'.\n", .{ token_type, current_token.toString() });
             return .{
                 .token = current_token,
                 .error_message = error_message,
