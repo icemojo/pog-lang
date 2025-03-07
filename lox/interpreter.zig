@@ -229,7 +229,7 @@ pub const Interpreter = struct {
         return .{
             .debug_print = false,
             .debug_env = false,
-            .env = Environment.init(allocator),
+            .env = Environment.init(allocator, null),
         };
     }
 
@@ -239,6 +239,7 @@ pub const Interpreter = struct {
     }
     
     pub fn executeAll(self: *Interpreter, allocator: Allocator, statements: std.ArrayList(*ast.Stmt)) (EvaluationError || RuntimeError)!void {
+        // const sub_env = self.env.initSubScope(allocator);
         for (statements.items) |stmt| {
             try self.evaluateStatement(allocator, stmt);
             debugPrint(self, "{} items in environment.\n", .{ self.env.values.count() });
@@ -425,10 +426,19 @@ fn evaluateUnaryExpr(self: *Interpreter, allocator: Allocator, unary: *const ast
 }
 
 const Environment = struct {
+    enclosing: ?*Environment,
     values: std.StringHashMap(Value),
 
-    fn init(allocator: Allocator) Environment {
+    fn init(allocator: Allocator, enclosing: ?*Environment) Environment {
         return .{
+            .enclosing = enclosing,
+            .values = std.StringHashMap(Value).init(allocator),
+        };
+    }
+
+    fn initSubScope(self: *const Environment, allocator: Allocator) Environment {
+        return .{
+            .enclosing = self,
             .values = std.StringHashMap(Value).init(allocator),
         };
     }
@@ -442,7 +452,12 @@ const Environment = struct {
 
     fn assign(self: *Environment, name: []const u8, value: Value) !void {
         if (!self.alreadyDefined(name)) {
-            return RuntimeError.UndefinedVariable;
+            if (self.enclosing) |enclosing| {
+                return try enclosing.*.assign(name, value);
+            } else {
+                // NOTE(yemon): Already at the top most (global) scope
+                return RuntimeError.UndefinedVariable;
+            }
         }
         try self.values.put(name, value);
     }
@@ -451,7 +466,12 @@ const Environment = struct {
         if (self.values.get(name)) |value| {
             return value;
         } else {
-            return RuntimeError.UndefinedVariable;
+            if (self.enclosing) |enclosing| {
+                return try enclosing.*.get(name);
+            } else {
+                // NOTE(yemon): Already at the top most (global) scope
+                return RuntimeError.UndefinedVariable;
+            }
         }
     }
 
