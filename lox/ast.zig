@@ -6,6 +6,24 @@ const Allocator = @import("std").mem.Allocator;
 const Token = @import("lexer.zig").Token;
 const Value = @import("interpreter.zig").Value;
 
+pub fn createAssignmentExpr(allocator: Allocator, variable: Token, value: *Expr) AllocError!*Expr {
+    if (variable.lexeme) |lexeme| {
+        const target_name = try allocator.alloc(u8, lexeme.len);
+        @memcpy(target_name, lexeme);
+
+        const expr = try allocator.create(Expr);
+        expr.* = Expr{
+            .assign = AssignmentExpr{
+                .name = target_name,
+                .value = value,
+            },
+        };
+        return expr;
+    } else {
+        return AllocError.OutOfMemory;
+    }
+}
+
 pub fn createBinaryExpr(allocator: Allocator, left: *Expr, optr: Token, right: *Expr) !*Expr {
     const expr = try allocator.create(Expr);
     expr.* = Expr{
@@ -62,6 +80,9 @@ pub fn createStringLiteral(allocator: Allocator, string_value: []const u8) !*Exp
 }
 
 pub fn createVariableExpr(allocator: Allocator, name: Token) !*Expr {
+    // NOTE(yemon): Could the `name` Token's lexeme and literal could cause problems
+    // in terms of their lifetimes here. If you think about it, the heap allocated `expr`
+    // here can potentially outlive the `source` string, of which the tokens were created.
     const expr = try allocator.create(Expr);
     expr.* = Expr{
         .variable = name,
@@ -72,6 +93,7 @@ pub fn createVariableExpr(allocator: Allocator, name: Token) !*Expr {
 const VariableExpr = Token;
 
 pub const Expr = union(enum) {
+    assign: AssignmentExpr,
     binary: BinaryExpr,
     unary: UnaryExpr,
     grouping: GroupingExpr,
@@ -80,6 +102,9 @@ pub const Expr = union(enum) {
 
     pub fn display(self: Expr, allocator: Allocator, line_break: bool) void { 
         switch (self) {
+            .assign => |assignment| {
+                debug.print("{s}", .{ assignment.toString(allocator) });
+            },
             .binary => |binary| {
                 debug.print("{s}", .{ binary.toString(allocator) });
             },
@@ -100,6 +125,9 @@ pub const Expr = union(enum) {
 
     pub fn toString(self: Expr, allocator: Allocator) []const u8 {
         switch (self) {
+            .assign => |assignment| {
+                return assignment.toString(allocator);
+            },
             .binary => |binary| {
                 return binary.toString(allocator);
             },
@@ -116,6 +144,18 @@ pub const Expr = union(enum) {
                 return variable.toString();
             },
         }
+    }
+};
+
+pub const AssignmentExpr = struct {
+    name: []u8,
+    value: *Expr,
+
+    fn toString(self: *const AssignmentExpr, allocator: Allocator) []const u8 {
+        const str = std.fmt.allocPrint(allocator, "({s}={s})", .{
+            self.name, self.value.*.toString(allocator),
+        }) catch "(NA)";
+        return str;
     }
 };
 

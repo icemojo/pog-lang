@@ -274,8 +274,12 @@ pub const Interpreter = struct {
     }
 };
 
-fn evaluate(self: *const Interpreter, allocator: Allocator, expr: *const ast.Expr) (EvaluationError || RuntimeError)!Value {
+fn evaluate(self: *Interpreter, allocator: Allocator, expr: *const ast.Expr) (EvaluationError || RuntimeError)!Value {
     switch (expr.*) {
+        .assign => |assignment| {
+            return try evaluateAssignmentExpr(self, allocator, &assignment);
+        },
+
         .binary => |binary| {
             return try evaluateBinaryExpr(self, allocator, &binary);
         },
@@ -308,7 +312,13 @@ fn evaluate(self: *const Interpreter, allocator: Allocator, expr: *const ast.Exp
     }
 }
 
-fn evaluateBinaryExpr(self: *const Interpreter, allocator: Allocator, binary: *const ast.BinaryExpr) (EvaluationError || RuntimeError)!Value {
+fn evaluateAssignmentExpr(self: *Interpreter, allocator: Allocator, assignment: *const ast.AssignmentExpr) (EvaluationError || RuntimeError)!Value {
+    const value = try evaluate(self, allocator, assignment.value);
+    try self.env.assign(assignment.name, value);
+    return value;
+}
+
+fn evaluateBinaryExpr(self: *Interpreter, allocator: Allocator, binary: *const ast.BinaryExpr) (EvaluationError || RuntimeError)!Value {
     const left_value = try evaluate(self, allocator, binary.left);
     const right_value = try evaluate(self, allocator, binary.right);
 
@@ -373,7 +383,7 @@ fn evaluateBinaryExpr(self: *const Interpreter, allocator: Allocator, binary: *c
     }
 }
 
-fn evaluateUnaryExpr(self: *const Interpreter, allocator: Allocator, unary: *const ast.UnaryExpr) (EvaluationError || RuntimeError)!Value {
+fn evaluateUnaryExpr(self: *Interpreter, allocator: Allocator, unary: *const ast.UnaryExpr) (EvaluationError || RuntimeError)!Value {
     const value = try evaluate(self, allocator, unary.right);
 
     switch (unary.optr.token_type) {
@@ -426,6 +436,13 @@ const Environment = struct {
     fn define(self: *Environment, name: []const u8, value: Value) !void {
         if (self.alreadyDefined(name)) {
             return RuntimeError.AlreadyDefinedVariable;
+        }
+        try self.values.put(name, value);
+    }
+
+    fn assign(self: *Environment, name: []const u8, value: Value) !void {
+        if (!self.alreadyDefined(name)) {
+            return RuntimeError.UndefinedVariable;
         }
         try self.values.put(name, value);
     }

@@ -16,6 +16,7 @@ const ParserError = error {
     InvalidSyncPosition,
     InvalidSyncToken,
     InvalidIdentifierDeclaration,
+    InvalidAssignmentTarget,
     DunnoIdentifier,
     CanSkip,
 
@@ -118,13 +119,43 @@ pub const Parser = struct {
     }
 
     fn expression(self: *Parser, allocator: Allocator) ParserError!*ast.Expr {
-        if (self.equality(allocator)) |it| {
+        if (self.assignment(allocator)) |it| {
             debugPrint(self, "Root expression done with {s}\n", .{ it.toString(allocator) });
             return it;
         } else |err| {
             debugPrint(self, "Root expression done with error {}\n", .{ err });
             return err;
         }
+    }
+
+    // NOTE(yemon): assignment expression still get more complex, 
+    // when the objects and field accessors come into play.
+    fn assignment(self: *Parser, allocator: Allocator) ParserError!*ast.Expr {
+        const expr = try self.equality(allocator);
+
+        if (self.advanceIfMatched(.Equal)) {
+            const value = try self.assignment(allocator);
+            switch (expr.*) {
+                .variable => |variable| {
+                    const assign_expr = ast.createAssignmentExpr(allocator, variable, value) catch |err| switch (err) {
+                        ast.AllocError.OutOfMemory => {
+                            return ParserError.OutOfMemory;
+                        },
+                    };
+                    debugPrint(self, "Assignment done with {s}.\n", .{ assign_expr.*.toString(allocator) });
+                    return assign_expr;
+                },
+                else => {
+                    return ParserError.InvalidAssignmentTarget;
+                },
+            }
+
+            const equals: Token = self.previous().?;
+            reportError(equals, "Invalid assignment target.");
+        }
+
+        debugPrint(self, "Assignment done with non-assignment equality.\n", .{});
+        return expr;
     }
 
     fn equality(self: *Parser, allocator: Allocator) ParserError!*ast.Expr {
