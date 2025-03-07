@@ -62,6 +62,16 @@ pub const Parser = struct {
         } else {
             if (self.advanceIfMatched(.Print)) {
                 return try self.printStmt(allocator);
+            } else if (self.advanceIfMatched(.LeftBrace)) {
+                var block = ast.Block.init(allocator);
+                const statements = try self.blockStmts(allocator);
+                block.statements = statements;
+
+                const stmt = try allocator.create(ast.Stmt);
+                stmt.* = ast.Stmt{
+                    .block = block,
+                };
+                return stmt;
             } else {
                 return try self.expressionStmt(allocator);
             }
@@ -108,6 +118,17 @@ pub const Parser = struct {
         _ = self.consume(.Semicolon, "Expect ';' after value.");
         const stmt = try ast.createPrintStmt(allocator, expr);
         return stmt;
+    }
+
+    // NOTE(yemon): This is not returning `*ast.Stmt` on purpose.
+    fn blockStmts(self: *Parser, allocator: Allocator) ParserError!std.ArrayList(*ast.Stmt) {
+        var statements = std.ArrayList(*ast.Stmt).init(allocator);
+        while (!self.check(.RightBrace) and !self.isEnd()) {
+            const block_stmt = try self.declaration(allocator);
+            try statements.append(block_stmt);
+        }
+        _ = self.consume(.RightBrace, "Expect '}' at the end of a block.");
+        return statements;
     }
 
     fn expressionStmt(self: *Parser, allocator: Allocator) ParserError!*ast.Stmt {

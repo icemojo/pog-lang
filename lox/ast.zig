@@ -270,6 +270,7 @@ pub const Stmt = union(enum) {
     variable: VariableStmt,
     print: PrintStmt,
     expr: ExprStmt,
+    block: Block,
 
     pub fn toString(self: Stmt, allocator: Allocator) []const u8 {
         switch (self) {
@@ -282,6 +283,9 @@ pub const Stmt = union(enum) {
             .expr => |expr| {
                 return expr.toString(allocator);
             },
+            .block => |_| {
+                return "{...}";
+            }
         }
     }
 };
@@ -364,6 +368,16 @@ pub fn createExprStmt(allocator: Allocator, expr: *Expr) !*Stmt {
     };
     return stmt;
 }
+
+pub const Block = struct {
+    statements: std.ArrayList(*Stmt),
+
+    pub fn init(allocator: Allocator) Block {
+        return .{
+            .statements = std.ArrayList(*Stmt).init(allocator),
+        };
+    }
+};
 
 // -----------------------------------------------------------------------------
 

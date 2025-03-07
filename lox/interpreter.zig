@@ -239,12 +239,10 @@ pub const Interpreter = struct {
     }
     
     pub fn executeAll(self: *Interpreter, allocator: Allocator, statements: std.ArrayList(*ast.Stmt)) (EvaluationError || RuntimeError)!void {
-        // const sub_env = self.env.initSubScope(allocator);
         for (statements.items) |stmt| {
             try self.evaluateStatement(allocator, stmt);
             debugPrint(self, "{} items in environment.\n", .{ self.env.values.count() });
             if (self.debug_env) {
-                // debug.print("{}\n", .{ self.env });
                 self.env.display(allocator);
             }
         }
@@ -271,6 +269,11 @@ pub const Interpreter = struct {
                 debugPrint(self, "Evaluating expression...\n", .{});
                 _ = try evaluate(self, allocator, expr.expr);
             },
+
+            .block => |block| {
+                debugPrint(self, "Evaluating a block...\n", .{});
+                _ = try executeBlock(self, allocator, block.statements, Environment.init(allocator, &self.env));
+            }
         }
     }
 };
@@ -423,6 +426,13 @@ fn evaluateUnaryExpr(self: *Interpreter, allocator: Allocator, unary: *const ast
             return value;
         }
     }
+}
+
+fn executeBlock(self: *Interpreter, allocator: Allocator, statements: std.ArrayList(*ast.Stmt), block_env: Environment) !void {
+    const parent_env = self.env;
+    self.env = block_env;
+    try self.executeAll(allocator, statements);
+    self.env = parent_env;
 }
 
 const Environment = struct {
