@@ -76,7 +76,7 @@ fn runFile(allocator: Allocator, options: *const opt.Options) void {
 
 fn run(allocator: Allocator, interpreter: *Interpreter, source: []const u8, options: *const opt.Options) void {
     var scanner = lexer.Scanner.init(allocator, source, options.verbose);
-    scanner.startScanning();
+    scanner.startScanning(options.repl_start);
 
     if (options.show_tokens) {
         for (scanner.tokens.items) |token| {

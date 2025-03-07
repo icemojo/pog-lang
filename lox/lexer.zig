@@ -115,13 +115,18 @@ pub const Scanner = struct {
         };
     }
 
-    pub fn startScanning(self: *Scanner) void {
+    pub fn startScanning(self: *Scanner, is_repl: bool) void {
         while (!self.isEnd()) {
             self.scanToken() catch |err| {
                 // NOTE(yemon): should I not use the `reportError` defined in main.zig?
                 debugPrint(self, "Error at [{}]: {}\n", .{ self.current, err });
                 continue;
             };
+        }
+
+        const last_token = self.tokens.items[self.tokens.items.len-1];
+        if (is_repl and last_token.token_type != .Semicolon) {
+            self.addNonLexemeToken(.Semicolon);
         }
         self.addNonLexemeToken(.Eof);
     }
