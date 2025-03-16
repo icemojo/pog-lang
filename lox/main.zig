@@ -13,7 +13,7 @@ pub fn main() void {
     // which can essentially reset after every execution.
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
-    defer _ = gpa.deinit();
+    // defer _ = gpa.deinit();
 
     var options = opt.parseOptions(allocator);
     defer {
@@ -30,7 +30,7 @@ pub fn main() void {
     if (options.repl_start) {
         repl.start(allocator, &options);
     } else {
-        runFile(allocator, &options);
+        runFile(allocator, &interpreter, &options);
     }
 }
 
@@ -73,7 +73,7 @@ const Repl = struct {
     }
 };
 
-fn runFile(allocator: Allocator, options: *const opt.Options) void {
+fn runFile(allocator: Allocator, interpreter: *Interpreter, options: *const opt.Options) void {
     if (options.*.input_file_path) |input_file_path| {
         debug.print("Input file path: {s}\n", .{ input_file_path[0..] });
         const contents = opt.openReadFile(allocator, input_file_path) catch |err| {
@@ -83,7 +83,9 @@ fn runFile(allocator: Allocator, options: *const opt.Options) void {
         defer allocator.free(contents);
 
         debug.print("openReadFile(..) output ({} bytes):\n", .{ contents.len });
-        debug.print("{s}\n", .{ contents });
+        // debug.print("{s}\n", .{ contents });
+
+        run(allocator, interpreter, contents, options);
     } else {
         debug.print("No script files provided in the command line as the first argument.\n", .{});
     }
