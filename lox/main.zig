@@ -9,12 +9,18 @@ const Parser      = @import("parser.zig").Parser;
 const Interpreter = @import("interpreter.zig").Interpreter;
 
 pub fn main() void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var options = opt.parseOptions(gpa.allocator());
-
     // NOTE(yemon): Maybe the repl could use an arena allocator, 
     // which can essentially reset after every execution.
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
+    defer _ = gpa.deinit();
+
+    var options = opt.parseOptions(allocator);
+    defer {
+        if (options.input_file_path) |input_file_path| {
+            allocator.free(input_file_path);
+        }
+    }
 
     var interpreter = Interpreter.init(allocator);
     interpreter.debug_print = options.verbose;
@@ -55,7 +61,7 @@ const Repl = struct {
         while (!self.should_quit) {
             debug.print(">> ", .{});
             input_buffer = stdin.readUntilDelimiterAlloc(allocator, '\n', buffer_size) catch "";
-            defer input_buffer = "";
+            defer allocator.free(input_buffer);     // NOTE(yemon): is this really necessary, or working?
 
             const input = std.mem.trim(u8, input_buffer, " \r");
             if (input.len == 0) {
@@ -63,15 +69,24 @@ const Repl = struct {
             } else {
                 run(allocator, self.interpreter, input, options);
             }
-            defer allocator.free(input_buffer);
         }
     }
 };
 
 fn runFile(allocator: Allocator, options: *const opt.Options) void {
-    _ = allocator;
-    _ = options;
-    debug.print("TODO(yemon): WIP on the runFile(..) function on the given script\n", .{});
+    if (options.*.input_file_path) |input_file_path| {
+        debug.print("Input file path: {s}\n", .{ input_file_path[0..] });
+        const contents = opt.openReadFile(allocator, input_file_path) catch |err| {
+            debug.print("ERROR: {}\n", .{ err });
+            return;
+        };
+        defer allocator.free(contents);
+
+        debug.print("openReadFile(..) output ({} bytes):\n", .{ contents.len });
+        debug.print("{s}\n", .{ contents });
+    } else {
+        debug.print("No script files provided in the command line as the first argument.\n", .{});
+    }
 }
 
 fn run(allocator: Allocator, interpreter: *Interpreter, source: []const u8, options: *const opt.Options) void {
