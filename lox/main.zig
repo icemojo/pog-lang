@@ -5,8 +5,10 @@ const Allocator = @import("std").mem.Allocator;
 const opt         = @import("options.zig");
 const lexer       = @import("lexer.zig");
 const ast         = @import("ast.zig");
-const Parser      = @import("parser.zig").Parser;
-const Interpreter = @import("interpreter.zig").Interpreter;
+//const Parser      = @import("parser.zig").Parser;
+const Parser      = @import("parser.zig");
+// const Interpreter = @import("interpreter.zig").Interpreter;
+const Interpreter = @import("interpreter.zig");
 
 pub fn main() void {
     // NOTE(yemon): Maybe the repl could use an arena allocator, 
@@ -75,15 +77,19 @@ const Repl = struct {
 
 fn runFile(allocator: Allocator, interpreter: *Interpreter, options: *const opt.Options) void {
     if (options.*.input_file_path) |input_file_path| {
-        debug.print("Input file path: {s}\n", .{ input_file_path[0..] });
-        const contents = opt.openReadFile(allocator, input_file_path) catch |err| {
+        if (options.verbose) {
+            debug.print("Input file path: {s}\n", .{ input_file_path[0..] });
+        }
+        const contents = opt.openReadFile(allocator, input_file_path, options.verbose) catch |err| {
             debug.print("ERROR: {}\n", .{ err });
             return;
         };
         defer allocator.free(contents);
 
-        debug.print("openReadFile(..) output ({} bytes):\n", .{ contents.len });
-        // debug.print("{s}\n", .{ contents });
+        if (options.verbose) {
+            debug.print("openReadFile(..) output ({} bytes):\n", .{ contents.len });
+            // debug.print("{s}\n", .{ contents });
+        }
 
         run(allocator, interpreter, contents, options);
     } else {

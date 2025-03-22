@@ -66,7 +66,7 @@ pub fn parseOptions(allocator: Allocator) Options {
     return options;
 }
 
-pub fn openReadFile(allocator: Allocator, input_file_path: []const u8) ![]u8 {
+pub fn openReadFile(allocator: Allocator, input_file_path: []const u8, verbose: bool) ![]u8 {
     const cwd = std.fs.cwd();
     const file = cwd.openFile(input_file_path, .{}) catch |err| {
         switch (err) {
@@ -87,42 +87,11 @@ pub fn openReadFile(allocator: Allocator, input_file_path: []const u8) ![]u8 {
 
     try file.seekTo(0);
     const bytes_read = try file.readAll(buffer[0..]);
-    debug.print("Read {} bytes from source:\n", .{ bytes_read });
-
-    const result = try allocator.alloc(u8, bytes_read);
-    @memcpy(result, buffer[0..bytes_read]);
-    return result;
-}
-
-pub fn openReadFileProperQuestionMark(allocator: Allocator, input_file_path: []const u8) !void {
-    const cwd = std.fs.cwd();
-    const file = cwd.openFile(input_file_path, .{}) catch |err| {
-        switch (err) {
-            error.FileNotFound => {
-                debug.print("The given script file \'{s}\' does not exist.\n", .{ input_file_path });
-            },
-            else => {
-                debug.print("Error openeing file: {}\n", .{ err });
-            }
-        }
-        return;
-    };
-    defer file.close();
-
-    const max_buffer = 1024 * 10 * 10;
-
-    // const contents = file.readToEndAlloc(allocator, max_buffer)
-    const contents = file.reader().readAllAlloc(allocator, max_buffer) 
-        catch |err| 
-    read: {
-        debug.print("Error reading file contents: {}\n", .{ err });
-        break :read null;
-    };
-    defer allocator.free(contents);
-
-    debug.print("File contents:\n", .{});
-    if (contents) |it| {
-        debug.print("{s}\n", .{ it });
+    if (verbose) {
+        debug.print("Read {} bytes from source:\n", .{ bytes_read });
     }
-    // debug.print("{s}\n", .{ buffer[0..bytes_read] });
+
+    const contents = try allocator.alloc(u8, bytes_read);
+    @memcpy(contents, buffer[0..bytes_read]);
+    return contents;
 }

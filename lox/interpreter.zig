@@ -220,65 +220,65 @@ const RuntimeError = error {
     AlreadyDefinedVariable,
 };
 
-pub const Interpreter = struct {
-    debug_print: bool,
-    debug_env: bool,
-    env: Environment,
+const Self = @This();
 
-    pub fn init(allocator: Allocator) Interpreter {
-        return .{
-            .debug_print = false,
-            .debug_env = false,
-            .env = Environment.init(allocator, null),
-        };
-    }
+debug_print: bool,
+debug_env: bool,
+env: Environment,
 
-    fn initBuiltins(self: *Interpreter) void {
-        _ = self;
-        // TODO(yemon): `__env__`, `__name__` so on and so forth...
-    }
-    
-    pub fn executeAll(self: *Interpreter, allocator: Allocator, statements: std.ArrayList(*ast.Stmt)) (EvaluationError || RuntimeError)!void {
-        for (statements.items) |stmt| {
-            try self.evaluateStatement(allocator, stmt);
-            debugPrint(self, "{} items in environment.\n", .{ self.env.values.count() });
-            if (self.debug_env) {
-                self.env.display(allocator);
-            }
+pub fn init(allocator: Allocator) Self {
+    return .{
+        .debug_print = false,
+        .debug_env = false,
+        .env = Environment.init(allocator, null),
+    };
+}
+
+fn initBuiltins(self: *Self) void {
+    _ = self;
+    // TODO(yemon): `__env__`, `__name__` so on and so forth...
+}
+
+pub fn executeAll(self: *Self, allocator: Allocator, statements: std.ArrayList(*ast.Stmt)) (EvaluationError || RuntimeError)!void {
+    for (statements.items) |stmt| {
+        try self.evaluateStatement(allocator, stmt);
+        debugPrint(self, "{} items in environment.\n", .{ self.env.values.count() });
+        if (self.debug_env) {
+            self.env.display(allocator);
         }
     }
+}
 
-    fn evaluateStatement(self: *Interpreter, allocator: Allocator, stmt: *const ast.Stmt) (EvaluationError || RuntimeError)!void {
-        switch (stmt.*) {
-            .variable => |variable| {
-                debugPrint(self, "Evaluating variable statement...\n", .{});
-                if (variable.initializer) |initializer| {
-                    const value = try evaluate(self, allocator, initializer);
-                    try self.env.define(variable.name, value);
-                } else {
-                    try self.env.define(variable.name, Value{ .nil = true });
-                }
-            },
-
-            .print => |print| {
-                debugPrint(self, "Evaluating print statement...\n", .{});
-                const value = try evaluate(self, allocator, print.expr);
-                debug.print("{s}\n", .{ value.toString(allocator) });
-            },
-            .expr => |expr| {
-                debugPrint(self, "Evaluating expression...\n", .{});
-                _ = try evaluate(self, allocator, expr.expr);
-            },
-
-            .block => |block| {
-                debugPrint(self, "Evaluating a block...\n", .{});
-                _ = try executeBlock(self, allocator, block.statements, Environment.init(allocator, &self.env));
+fn evaluateStatement(self: *Self, allocator: Allocator, stmt: *const ast.Stmt) (EvaluationError || RuntimeError)!void {
+    switch (stmt.*) {
+        .variable => |variable| {
+            debugPrint(self, "Evaluating variable statement...\n", .{});
+            if (variable.initializer) |initializer| {
+                const value = try evaluate(self, allocator, initializer);
+                try self.env.define(variable.name, value);
+            } else {
+                try self.env.define(variable.name, Value{ .nil = true });
             }
+        },
+
+        .print => |print| {
+            debugPrint(self, "Evaluating print statement...\n", .{});
+            const value = try evaluate(self, allocator, print.expr);
+            debug.print("{s}\n", .{ value.toString(allocator) });
+        },
+        .expr => |expr| {
+            debugPrint(self, "Evaluating expression...\n", .{});
+            _ = try evaluate(self, allocator, expr.expr);
+        },
+
+        .block => |block| {
+            debugPrint(self, "Evaluating a block...\n", .{});
+            _ = try executeBlock(self, allocator, block.statements, Environment.init(allocator, &self.env));
         }
     }
-};
+}
 
-fn evaluate(self: *Interpreter, allocator: Allocator, expr: *const ast.Expr) (EvaluationError || RuntimeError)!Value {
+fn evaluate(self: *Self, allocator: Allocator, expr: *const ast.Expr) (EvaluationError || RuntimeError)!Value {
     switch (expr.*) {
         .assign => |assignment| {
             return try evaluateAssignmentExpr(self, allocator, &assignment);
@@ -316,13 +316,13 @@ fn evaluate(self: *Interpreter, allocator: Allocator, expr: *const ast.Expr) (Ev
     }
 }
 
-fn evaluateAssignmentExpr(self: *Interpreter, allocator: Allocator, assignment: *const ast.AssignmentExpr) (EvaluationError || RuntimeError)!Value {
+fn evaluateAssignmentExpr(self: *Self, allocator: Allocator, assignment: *const ast.AssignmentExpr) (EvaluationError || RuntimeError)!Value {
     const value = try evaluate(self, allocator, assignment.value);
     try self.env.assign(assignment.name, value);
     return value;
 }
 
-fn evaluateBinaryExpr(self: *Interpreter, allocator: Allocator, binary: *const ast.BinaryExpr) (EvaluationError || RuntimeError)!Value {
+fn evaluateBinaryExpr(self: *Self, allocator: Allocator, binary: *const ast.BinaryExpr) (EvaluationError || RuntimeError)!Value {
     const left_value = try evaluate(self, allocator, binary.left);
     const right_value = try evaluate(self, allocator, binary.right);
 
@@ -387,7 +387,7 @@ fn evaluateBinaryExpr(self: *Interpreter, allocator: Allocator, binary: *const a
     }
 }
 
-fn evaluateUnaryExpr(self: *Interpreter, allocator: Allocator, unary: *const ast.UnaryExpr) (EvaluationError || RuntimeError)!Value {
+fn evaluateUnaryExpr(self: *Self, allocator: Allocator, unary: *const ast.UnaryExpr) (EvaluationError || RuntimeError)!Value {
     const value = try evaluate(self, allocator, unary.right);
 
     switch (unary.optr.token_type) {
@@ -428,7 +428,7 @@ fn evaluateUnaryExpr(self: *Interpreter, allocator: Allocator, unary: *const ast
     }
 }
 
-fn executeBlock(self: *Interpreter, allocator: Allocator, statements: std.ArrayList(*ast.Stmt), block_env: Environment) !void {
+fn executeBlock(self: *Self, allocator: Allocator, statements: std.ArrayList(*ast.Stmt), block_env: Environment) !void {
     const parent_env = self.env;
     self.env = block_env;
     try self.executeAll(allocator, statements);
@@ -505,7 +505,7 @@ const Environment = struct {
     }
 };
 
-fn debugPrint(self: *const Interpreter, comptime fmt: []const u8, args: anytype) void {
+fn debugPrint(self: *const Self, comptime fmt: []const u8, args: anytype) void {
     if (!self.debug_print) {
         return;
     }
