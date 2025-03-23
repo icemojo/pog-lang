@@ -5,9 +5,7 @@ const Allocator = @import("std").mem.Allocator;
 const opt         = @import("options.zig");
 const lexer       = @import("lexer.zig");
 const ast         = @import("ast.zig");
-//const Parser      = @import("parser.zig").Parser;
 const Parser      = @import("parser.zig");
-// const Interpreter = @import("interpreter.zig").Interpreter;
 const Interpreter = @import("interpreter.zig");
 
 pub fn main() void {
@@ -16,7 +14,7 @@ pub fn main() void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
     // defer _ = gpa.deinit();
-
+ 
     var options = opt.parseOptions(allocator);
     defer {
         if (options.input_file_path) |input_file_path| {
@@ -27,6 +25,7 @@ pub fn main() void {
     var interpreter = Interpreter.init(allocator);
     interpreter.debug_print = options.verbose;
     interpreter.debug_env = options.show_env;
+    // defer allocator.destroy(interpreter.env);
 
     var repl = Repl.init(&interpreter);
     if (options.repl_start) {
@@ -98,6 +97,9 @@ fn runFile(allocator: Allocator, interpreter: *Interpreter, options: *const opt.
 }
 
 fn run(allocator: Allocator, interpreter: *Interpreter, source: []const u8, options: *const opt.Options) void {
+    if (options.verbose) {
+        debug.print("------------------------------------------------------------\n", .{});
+    }
     var scanner = lexer.Scanner.init(allocator, source, options.verbose);
     scanner.startScanning(options.repl_start);
 
@@ -105,6 +107,9 @@ fn run(allocator: Allocator, interpreter: *Interpreter, source: []const u8, opti
         for (scanner.tokens.items) |token| {
             token.display();
         }
+    }
+    if (options.verbose) {
+        debug.print("------------------------------------------------------------\n", .{});
     }
 
     var parser = Parser.init(&scanner.tokens);
@@ -116,8 +121,11 @@ fn run(allocator: Allocator, interpreter: *Interpreter, source: []const u8, opti
         debug.print("Error when parsing the expression tree: {}\n", .{ err });
         return;
     };
+    if (options.verbose) {
+        debug.print("------------------------------------------------------------\n", .{});
+    }
 
-    interpreter.executeAll(allocator, statements) catch |err| {
+    interpreter.*.executeAll(allocator, statements) catch |err| {
         debug.print("Runtime error occured:\n", .{});
         debug.print("{}\n", .{ err });
         return;
