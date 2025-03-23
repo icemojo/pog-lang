@@ -23,12 +23,12 @@ const ParserError = error {
     OutOfMemory,
 };
 
-const Self = @This();
-
 tokens: *std.ArrayList(Token),
 current: usize,
 has_error: bool,
 debug_print: bool,
+
+const Self = @This();
 
 pub fn init(tokens: *std.ArrayList(Token)) Self {
     return .{
@@ -61,21 +61,27 @@ fn declaration(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
     if (self.advanceIfMatched(.Var)) {
         return try self.variableDeclareStmt(allocator);
     } else {
-        if (self.advanceIfMatched(.Print)) {
-            return try self.printStmt(allocator);
-        } else if (self.advanceIfMatched(.LeftBrace)) {
-            var block = ast.Block.init(allocator);
-            const statements = try self.blockStmts(allocator);
-            block.statements = statements;
+        return try self.statement(allocator);
+    }
+}
 
-            const stmt = try allocator.create(ast.Stmt);
-            stmt.* = ast.Stmt{
-                .block = block,
-            };
-            return stmt;
-        } else {
-            return try self.expressionStmt(allocator);
-        }
+fn statement(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
+    if (self.advanceIfMatched(.Print)) {
+        return try self.printStmt(allocator);
+    } else if (self.advanceIfMatched(.If)) {
+        return try self.ifStmt(allocator);
+    } else if (self.advanceIfMatched(.LeftBrace)) {
+        var block = ast.Block.init(allocator);
+        const statements = try self.blockStmts(allocator);
+        block.statements = statements;
+
+        const stmt = try allocator.create(ast.Stmt);
+        stmt.* = ast.Stmt{
+            .block = block,
+        };
+        return stmt;
+    } else {
+        return try self.expressionStmt(allocator);
     }
 }
 
@@ -121,6 +127,22 @@ fn printStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
     return stmt;
 }
 
+fn ifStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
+    self.debugPrint("Seems like an if statement block...\n", .{});
+    _ = self.consume(.LeftParen, "Expect '(' after 'if'.");
+    const condition = try self.expression(allocator);
+    _ = self.consume(.RightParen, "Expect ')' after if condition.");
+
+    const then_branch = try self.statement(allocator);
+    var else_branch: ?*ast.Stmt = null;
+    if (self.advanceIfMatched(.Else)) {
+        else_branch = try self.statement(allocator);
+    }
+
+    const if_stmt = try ast.createIfStmt(allocator, condition, then_branch, else_branch);
+    return if_stmt;
+}
+
 // NOTE(yemon): This is not returning `*ast.Stmt` on purpose.
 fn blockStmts(self: *Self, allocator: Allocator) ParserError!std.ArrayList(*ast.Stmt) {
     var statements = std.ArrayList(*ast.Stmt).init(allocator);
@@ -153,7 +175,7 @@ fn expression(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
 // NOTE(yemon): assignment expression still get more complex, 
 // when the objects and field accessors come into play.
 fn assignment(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
-    const expr = try self.equality(allocator);
+    const expr = try self.logicOr(allocator);
 
     if (self.advanceIfMatched(.Equal)) {
         const value = try self.assignment(allocator);
@@ -177,6 +199,34 @@ fn assignment(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
     }
 
     debugPrint(self, "Assignment done with non-assignment equality.\n", .{});
+    return expr;
+}
+
+fn logicOr(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
+    var expr = try self.logicAnd(allocator);
+
+    if (self.advanceIfMatched(.Or)) {
+        const optr = self.previous().?;
+        const right = try self.logicAnd(allocator);
+        expr = try ast.createLogicalExpr(allocator, expr, optr, right);
+        self.debugPrint("Logical done with 'or' condition. {s}\n", .{ expr.toString(allocator) });
+    }
+
+    self.debugPrint("Logical 'or' done. {s}\n", .{ expr.toString(allocator) });
+    return expr;
+}
+
+fn logicAnd(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
+    var expr = try self.equality(allocator);
+
+    if (self.advanceIfMatched(.And)) {
+        const optr = self.previous().?;
+        const right = try self.equality(allocator);
+        expr = try ast.createLogicalExpr(allocator, expr, optr, right);
+        self.debugPrint("Logical done with 'and' condition. {s}\n", .{ expr.toString(allocator) });
+    }
+
+    self.debugPrint("Logical 'and' done. {s}\n", .{ expr.toString(allocator) });
     return expr;
 }
 

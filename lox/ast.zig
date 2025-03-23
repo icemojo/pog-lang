@@ -36,6 +36,18 @@ pub fn createBinaryExpr(allocator: Allocator, left: *Expr, optr: Token, right: *
     return expr;
 }
 
+pub fn createLogicalExpr(allocator: Allocator, left: *Expr, optr: Token, right: *Expr) !*Expr {
+    const expr = try allocator.create(Expr);
+    expr.* = Expr{
+        .logical = LogicalExpr{
+            .left = left,
+            .optr = optr,
+            .right = right,
+        },
+    };
+    return expr;
+}
+
 pub fn createUnaryExpr(allocator: Allocator, optr: Token, right: *Expr) !*Expr {
     const expr = try allocator.create(Expr);
     expr.* = Expr{
@@ -95,6 +107,7 @@ const VariableExpr = Token;
 pub const Expr = union(enum) {
     assign: AssignmentExpr,
     binary: BinaryExpr,
+    logical: LogicalExpr,
     unary: UnaryExpr,
     grouping: GroupingExpr,
     literal: LiteralExpr,
@@ -107,6 +120,9 @@ pub const Expr = union(enum) {
             },
             .binary => |binary| {
                 debug.print("{s}", .{ binary.toString(allocator) });
+            },
+            .logical => |logical| {
+                debug.print("{s}", .{ logical.toString(allocator) });
             },
             .unary => |unary| {
                 debug.print("{s}", .{ unary.toString(allocator) });
@@ -130,6 +146,9 @@ pub const Expr = union(enum) {
             },
             .binary => |binary| {
                 return binary.toString(allocator);
+            },
+            .logical => |logical| {
+                return logical.toString(allocator);
             },
             .unary => |unary| {
                 return unary.toString(allocator);
@@ -167,6 +186,22 @@ pub const BinaryExpr = struct {
     fn toString(self: *const BinaryExpr, allocator: Allocator) []const u8 {
         const optr_string = self.optr.toString();
         const str = std.fmt.allocPrint(allocator, "({s} {s} {s})", .{
+            optr_string,
+            self.left.toString(allocator),
+            self.right.toString(allocator),
+        }) catch "(NA)";
+        return str;
+    }
+};
+
+pub const LogicalExpr = struct {
+    left: *Expr,
+    optr: Token,
+    right: *Expr,
+
+    fn toString(self: *const LogicalExpr, allocator: Allocator) []const u8 {
+        const optr_string = self.optr.toString();
+        const str = std.fmt.allocPrint(allocator, "{s} {s} {s}", .{
             optr_string,
             self.left.toString(allocator),
             self.right.toString(allocator),
@@ -270,6 +305,7 @@ pub const Stmt = union(enum) {
     variable: VariableStmt,
     print: PrintStmt,
     expr: ExprStmt,
+    if_stmt: IfStmt,
     block: Block,
 
     pub fn toString(self: Stmt, allocator: Allocator) []const u8 {
@@ -282,6 +318,9 @@ pub const Stmt = union(enum) {
             },
             .expr => |expr| {
                 return expr.toString(allocator);
+            },
+            .if_stmt => |if_stmt| {
+                return if_stmt.toString(allocator);
             },
             .block => |_| {
                 return "{...}";
@@ -364,6 +403,35 @@ pub fn createExprStmt(allocator: Allocator, expr: *Expr) !*Stmt {
     stmt.* = Stmt{
         .expr = ExprStmt{
             .expr = expr,
+        },
+    };
+    return stmt;
+}
+
+pub const IfStmt = struct {
+    condition: *Expr,
+    then_branch: *Stmt,
+    else_branch: ?*Stmt,
+
+    fn toString(self: *const IfStmt, allocator: Allocator) []const u8 {
+        const str = std.fmt.allocPrint(allocator, "if ({s}) {...}", .{ 
+            self.condition.toString(allocator) 
+        }) catch "if ...";
+        var else_str: []u8 = "";
+        if (self.else_branch) |_| {
+            else_str = std.fmt.allocPrint(allocator, " else {...}", .{});
+        }
+        return str ++ else_str ++ "\n";
+    }
+};
+
+pub fn createIfStmt(allocator: Allocator, condition: *Expr, then_branch: *Stmt, else_branch: ?*Stmt) !*Stmt {
+    const stmt = try allocator.create(Stmt);
+    stmt.* = Stmt{
+        .if_stmt = IfStmt{
+            .condition = condition,
+            .then_branch = then_branch,
+            .else_branch = else_branch,
         },
     };
     return stmt;

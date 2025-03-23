@@ -221,11 +221,11 @@ const RuntimeError = error {
     AlreadyDefinedVariable,
 };
 
-const Self = @This();
-
 debug_print: bool,
 debug_env: bool,
 env: *Environment,
+
+const Self = @This();
 
 pub fn init(allocator: Allocator) Self {
     return .{
@@ -271,6 +271,22 @@ fn evaluateStatement(self: *Self, allocator: Allocator, stmt: *const ast.Stmt) (
             _ = try self.evaluate(allocator, expr.expr);
         },
 
+        .if_stmt => |if_stmt| {
+            self.debugPrint("Evaluating if statement ", .{});
+            const condition = try self.evaluate(allocator, if_stmt.condition);
+            if (condition.isTruthy()) {
+                self.debugPrint("TRUE... ", .{});
+                _ = try self.evaluateStatement(allocator, if_stmt.then_branch);
+            } else {
+                self.debugPrint("FALSE... ", .{});
+                if (if_stmt.else_branch) |else_branch| {
+                    self.debugPrint("else branch...", .{});
+                    _ = try self.evaluateStatement(allocator, else_branch);
+                }
+            }
+            self.debugPrint("\n", .{});
+        },
+
         .block => |block| {
             self.debugPrint("Evaluating a block...\n", .{});
             _ = try self.executeBlock(allocator, block.statements);
@@ -286,6 +302,9 @@ fn evaluate(self: *Self, allocator: Allocator, expr: *const ast.Expr) (Evaluatio
 
         .binary => |binary| {
             return try self.evaluateBinaryExpr(allocator, &binary);
+        },
+        .logical => |logical| {
+            return try self.evaluateLogicalExpr(allocator, &logical);
         },
         .unary => |unary| {
             return try self.evaluateUnaryExpr(allocator, &unary);
@@ -388,6 +407,22 @@ fn evaluateBinaryExpr(self: *Self, allocator: Allocator, binary: *const ast.Bina
             return error.UnknownBinaryOperation;
         }
     }
+}
+
+fn evaluateLogicalExpr(self: *Self, allocator: Allocator, logical: *const ast.LogicalExpr) (EvaluationError || RuntimeError)!Value {
+    const left = try self.evaluate(allocator, logical.left);
+
+    if (logical.optr.token_type == .Or) {
+        if (left.isTruthy()) {
+            return left;
+        }
+    } else {
+        if (!left.isTruthy()) {
+            return left;
+        }
+    }
+
+    return try self.evaluate(allocator, logical.right);
 }
 
 fn evaluateUnaryExpr(self: *Self, allocator: Allocator, unary: *const ast.UnaryExpr) (EvaluationError || RuntimeError)!Value {
