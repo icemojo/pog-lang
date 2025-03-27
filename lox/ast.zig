@@ -1,4 +1,5 @@
 const std       = @import("std");
+const fmt       = @import("std").fmt;
 const debug     = @import("std").debug;
 const eql       = @import("std").mem.eql;
 const Allocator = @import("std").mem.Allocator;
@@ -171,7 +172,7 @@ pub const AssignmentExpr = struct {
     value: *Expr,
 
     fn toString(self: *const AssignmentExpr, allocator: Allocator) []const u8 {
-        const str = std.fmt.allocPrint(allocator, "({s}={s})", .{
+        const str = fmt.allocPrint(allocator, "({s}={s})", .{
             self.name, self.value.*.toString(allocator),
         }) catch "(NA)";
         return str;
@@ -185,7 +186,7 @@ pub const BinaryExpr = struct {
 
     fn toString(self: *const BinaryExpr, allocator: Allocator) []const u8 {
         const optr_string = self.optr.toString();
-        const str = std.fmt.allocPrint(allocator, "({s} {s} {s})", .{
+        const str = fmt.allocPrint(allocator, "({s} {s} {s})", .{
             optr_string,
             self.left.toString(allocator),
             self.right.toString(allocator),
@@ -201,7 +202,7 @@ pub const LogicalExpr = struct {
 
     fn toString(self: *const LogicalExpr, allocator: Allocator) []const u8 {
         const optr_string = self.optr.toString();
-        const str = std.fmt.allocPrint(allocator, "{s} {s} {s}", .{
+        const str = fmt.allocPrint(allocator, "{s} {s} {s}", .{
             optr_string,
             self.left.toString(allocator),
             self.right.toString(allocator),
@@ -216,7 +217,7 @@ pub const UnaryExpr = struct {
 
     fn toString(self: *const UnaryExpr, allocator: Allocator) []const u8 {
         const optr_string = self.optr.toString();
-        const str = std.fmt.allocPrint(allocator, "({s} {s})", .{ 
+        const str = fmt.allocPrint(allocator, "({s} {s})", .{ 
             optr_string, 
             self.right.toString(allocator),
         }) catch "(NA)";
@@ -228,7 +229,7 @@ pub const GroupingExpr = struct {
     inner: *Expr,
 
     fn toString(self: *const GroupingExpr, allocator: Allocator) []const u8 {
-        const str = std.fmt.allocPrint(allocator, "{s}", .{
+        const str = fmt.allocPrint(allocator, "{s}", .{
             self.inner.toString(allocator),
         }) catch "(NA)";
         return str;
@@ -274,22 +275,22 @@ pub const LiteralExpr = union(enum) {
         var str: []const u8 = undefined;
         switch (self) {
             .integer => |value| {
-                str = std.fmt.allocPrint(allocator, "{any}", .{ value }) 
+                str = fmt.allocPrint(allocator, "{any}", .{ value }) 
                     catch "NA";
             },
 
             .double => |value| {
-                str = std.fmt.allocPrint(allocator, "{d}", .{ value }) 
+                str = fmt.allocPrint(allocator, "{d}", .{ value }) 
                     catch "NA";
             },
 
             .text => |value| {
-                str = std.fmt.allocPrint(allocator, "\"{s}\"", .{ value }) 
+                str = fmt.allocPrint(allocator, "\"{s}\"", .{ value }) 
                     catch "NA";
             },
 
             .boolean => |value| {
-                str = std.fmt.allocPrint(allocator, "{any}", .{ value }) 
+                str = fmt.allocPrint(allocator, "{any}", .{ value }) 
                     catch "NA";
             },
 
@@ -306,6 +307,7 @@ pub const Stmt = union(enum) {
     print: PrintStmt,
     expr: ExprStmt,
     if_stmt: IfStmt,
+    while_stmt: WhileStmt,
     block: Block,
 
     pub fn toString(self: Stmt, allocator: Allocator) []const u8 {
@@ -322,6 +324,9 @@ pub const Stmt = union(enum) {
             .if_stmt => |if_stmt| {
                 return if_stmt.toString(allocator);
             },
+            .while_stmt => |while_stmt| {
+                return while_stmt.toString(allocator);
+            },
             .block => |_| {
                 return "{...}";
             }
@@ -335,10 +340,10 @@ pub const VariableStmt = struct {
 
     fn toString(self: *const VariableStmt, allocator: Allocator) []const u8 {
         if (self.initializer) |initializer| {
-            const str = std.fmt.allocPrint(allocator, "var {s} = {s};", .{ self.name, initializer.*.toString(allocator) }) catch "-";
+            const str = fmt.allocPrint(allocator, "var {s} = {s};", .{ self.name, initializer.*.toString(allocator) }) catch "-";
             return str;
         } else {
-            const str = std.fmt.allocPrint(allocator, "var {s};", .{ self.name }) catch "-";
+            const str = fmt.allocPrint(allocator, "var {s};", .{ self.name }) catch "-";
             return str;
         }
     }
@@ -370,7 +375,7 @@ pub const PrintStmt = struct {
     expr: *Expr,
 
     fn toString(self: *const PrintStmt, allocator: Allocator) []const u8 {
-        const str = std.fmt.allocPrint(allocator, "print {s};\n", .{ 
+        const str = fmt.allocPrint(allocator, "print {s};\n", .{ 
             self.expr.*.toString(allocator) 
         }) catch "print -";
         return str;
@@ -391,7 +396,7 @@ pub const ExprStmt = struct {
     expr: *Expr,
 
     fn toString(self: *const ExprStmt, allocator: Allocator) []const u8 {
-        const str = std.fmt.allocPrint(allocator, "{s};\n", .{ 
+        const str = fmt.allocPrint(allocator, "{s};\n", .{ 
             self.expr.*.toString(allocator) 
         }) catch "-";
         return str;
@@ -414,14 +419,16 @@ pub const IfStmt = struct {
     else_branch: ?*Stmt,
 
     fn toString(self: *const IfStmt, allocator: Allocator) []const u8 {
-        const str = std.fmt.allocPrint(allocator, "if ({s}) {...}", .{ 
+        // NOTE(yemon): Zig's formatting strings does not accept '{' or '}' right now AFAIK...
+        const cond_str = fmt.allocPrint(allocator, "if ({s}) ...", .{ 
             self.condition.toString(allocator) 
         }) catch "if ...";
-        var else_str: []u8 = "";
         if (self.else_branch) |_| {
-            else_str = std.fmt.allocPrint(allocator, " else {...}", .{});
+            const str = fmt.allocPrint(allocator, "{s}\nelse ...", .{ cond_str }) catch "-";
+            return str;
+        } else {
+            return cond_str;
         }
-        return str ++ else_str ++ "\n";
     }
 };
 
@@ -432,6 +439,30 @@ pub fn createIfStmt(allocator: Allocator, condition: *Expr, then_branch: *Stmt, 
             .condition = condition,
             .then_branch = then_branch,
             .else_branch = else_branch,
+        },
+    };
+    return stmt;
+}
+
+pub const WhileStmt = struct {
+    condition: *Expr,
+    body: *Stmt,
+
+    fn toString(self: *const WhileStmt, allocator: Allocator) []const u8 {
+        // NOTE(yemon): Zig's formatting strings does not accept '{' or '}' right now AFAIK...
+        const str = fmt.allocPrint(allocator, "while ({s}) ...", .{
+            self.condition.toString(allocator)
+        }) catch "while ...";
+        return str;
+    }
+};
+
+pub fn createWhileStmt(allocator: Allocator, condition: *Expr, body: *Stmt) !*Stmt {
+    const stmt = try allocator.create(Stmt);
+    stmt.* = Stmt{
+        .while_stmt = WhileStmt{
+            .condition = condition,
+            .body = body,
         },
     };
     return stmt;

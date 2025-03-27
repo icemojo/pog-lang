@@ -100,7 +100,7 @@ fn run(allocator: Allocator, interpreter: *Interpreter, source: []const u8, opti
     if (options.verbose) {
         debug.print("------------------------------------------------------------\n", .{});
     }
-    var scanner = lexer.Scanner.init(allocator, source, options.verbose);
+    var scanner = lexer.Scanner.init(allocator, source, options.show_tokens);
     scanner.startScanning(options.repl_start);
 
     if (options.show_tokens) {
@@ -112,8 +112,7 @@ fn run(allocator: Allocator, interpreter: *Interpreter, source: []const u8, opti
         debug.print("------------------------------------------------------------\n", .{});
     }
 
-    var parser = Parser.init(&scanner.tokens);
-    parser.debug_print = options.verbose;
+    var parser = Parser.init(&scanner.tokens, options.debug_parser, options.debug_ast);
     // NOTE(yemon): `ParserError` is being printed out here temporarily.
     // Idealy, the parser should handle the error states internally, and 
     // shouldn't bubble up at all.

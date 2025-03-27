@@ -27,15 +27,17 @@ tokens: *std.ArrayList(Token),
 current: usize,
 has_error: bool,
 debug_print: bool,
+debug_ast: bool,
 
 const Self = @This();
 
-pub fn init(tokens: *std.ArrayList(Token)) Self {
+pub fn init(tokens: *std.ArrayList(Token), debug_print: bool, debug_ast: bool) Self {
     return .{
         .tokens = tokens,
         .current = 0,
         .has_error = false,
-        .debug_print = false,
+        .debug_print = debug_print,
+        .debug_ast = debug_ast,
     };
 }
 
@@ -53,7 +55,15 @@ pub fn parse(self: *Self, allocator: Allocator) ParserError!std.ArrayList(*ast.S
             continue :parsing;
         }
     }
-    debugPrint(self, "End of all the statements.\n", .{});
+    self.debugPrint("End of all the statements.\n", .{});
+
+    if (self.debug_ast) {
+        debug.print("Final AST:\n", .{});
+        for (statements.items) |stmt| {
+            debug.print("{s}\n", .{ stmt.*.toString(allocator) });
+        }
+    }
+
     return statements;
 }
 
@@ -70,6 +80,8 @@ fn statement(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
         return try self.printStmt(allocator);
     } else if (self.advanceIfMatched(.If)) {
         return try self.ifStmt(allocator);
+    } else if (self.advanceIfMatched(.While)) {
+        return try self.whileStmt(allocator);
     } else if (self.advanceIfMatched(.LeftBrace)) {
         var block = ast.Block.init(allocator);
         const statements = try self.blockStmts(allocator);
@@ -141,6 +153,18 @@ fn ifStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
 
     const if_stmt = try ast.createIfStmt(allocator, condition, then_branch, else_branch);
     return if_stmt;
+}
+
+fn whileStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
+    self.debugPrint("Seems like a while statement block...\n", .{});
+    _ = self.consume(.LeftParen, "Expect '(' after 'while'.");
+    const condition = try self.expression(allocator);
+    _ = self.consume(.RightParen, "Expect ')' after 'while' condition.");
+
+    const body = try self.statement(allocator);
+
+    const while_stmt = try ast.createWhileStmt(allocator, condition, body);
+    return while_stmt;
 }
 
 // NOTE(yemon): This is not returning `*ast.Stmt` on purpose.

@@ -12,6 +12,13 @@ const ArithmeticOp = enum {
     addition,
 };
 
+const ComparisonOp = enum {
+    lesser,
+    lesser_equal,
+    greater,
+    greater_equal,
+};
+
 const ValueError = error {
     InvalidValueComparison,
 };
@@ -174,6 +181,65 @@ pub const Value = union(enum) {
         }
     }
 
+    pub fn doComparison(self: Value, rhs: Value, op: ComparisonOp) EvaluationError!Value {
+        // NOTE(yemon): force coercing the i64 into f64 here agin, just for simplicity's sake
+        switch (self) {
+            .integer => |left_int| {
+                switch (rhs) {
+                    .integer => |right_int| {
+                        switch (op) {
+                            .lesser => return Value{ .boolean = left_int < right_int },
+                            .lesser_equal => return Value{ .boolean = left_int <= right_int },
+                            .greater => return Value{ .boolean = left_int > right_int },
+                            .greater_equal => return Value{ .boolean = left_int >= right_int },
+                        }
+                    },
+                    .double => |right_double| {
+                        const left_double: f64 = @floatFromInt(left_int);
+                        switch (op) {
+                            .lesser => return Value{ .boolean = left_double < right_double },
+                            .lesser_equal => return Value{ .boolean = left_double <= right_double },
+                            .greater => return Value{ .boolean = left_double > right_double },
+                            .greater_equal => return Value{ .boolean = left_double >= right_double },
+                        }
+                    },
+                    else => {
+                        return error.InvalidComparisonOperand;
+                    }
+                }
+            },
+
+            .double => |left_double| {
+                switch (rhs) {
+                    .integer => |right_int| {
+                        const right_double: f64 = @floatFromInt(right_int);
+                        switch (op) {
+                            .lesser => return Value{ .boolean = left_double < right_double },
+                            .lesser_equal => return Value{ .boolean = left_double <= right_double },
+                            .greater => return Value{ .boolean = left_double > right_double },
+                            .greater_equal => return Value{ .boolean = left_double >= right_double },
+                        }
+                    },
+                    .double => |right_double| {
+                        switch (op) {
+                            .lesser => return Value{ .boolean = left_double < right_double },
+                            .lesser_equal => return Value{ .boolean = left_double <= right_double },
+                            .greater => return Value{ .boolean = left_double > right_double },
+                            .greater_equal => return Value{ .boolean = left_double >= right_double },
+                        }
+                    },
+                    else => {
+                        return error.InvalidComparisonOperand;
+                    }
+                }
+            },
+
+            else => {
+                return error.InvalidComparisonOperand;
+            }
+        }
+    }
+
     pub fn toString(self: Value, allocator: Allocator) []const u8 {
         switch (self) {
             .integer => |it| {
@@ -203,6 +269,7 @@ fn concatStrings(allocator: Allocator, string1: []const u8, string2: []const u8)
 const EvaluationError = error {
     UnknownBinaryOperation,
     InvalidArithmeticOperand,
+    InvalidComparisonOperand,
     InvalidStringOperand,
     InvalidValueTypeToNegate,
     StringConcatFailed,
@@ -272,19 +339,27 @@ fn evaluateStatement(self: *Self, allocator: Allocator, stmt: *const ast.Stmt) (
         },
 
         .if_stmt => |if_stmt| {
-            self.debugPrint("Evaluating if statement ", .{});
+            self.debugPrint("Evaluating if statement...\n", .{});
             const condition = try self.evaluate(allocator, if_stmt.condition);
             if (condition.isTruthy()) {
-                self.debugPrint("TRUE... ", .{});
-                _ = try self.evaluateStatement(allocator, if_stmt.then_branch);
+                self.debugPrint("TRUE... \n", .{});
+                try self.evaluateStatement(allocator, if_stmt.then_branch);
             } else {
                 self.debugPrint("FALSE... ", .{});
                 if (if_stmt.else_branch) |else_branch| {
-                    self.debugPrint("else branch...", .{});
-                    _ = try self.evaluateStatement(allocator, else_branch);
+                    self.debugPrint("else branch...\n", .{});
+                    try self.evaluateStatement(allocator, else_branch);
                 }
             }
-            self.debugPrint("\n", .{});
+        },
+
+        .while_stmt => |while_stmt| {
+            self.debugPrint("Evaluating while statement block...\n", .{});
+            var condition = try self.evaluate(allocator, while_stmt.condition);
+            while (condition.isTruthy()) {
+                try self.evaluateStatement(allocator, while_stmt.body);
+                condition = try self.evaluate(allocator, while_stmt.condition);
+            }
         },
 
         .block => |block| {
@@ -297,22 +372,28 @@ fn evaluateStatement(self: *Self, allocator: Allocator, stmt: *const ast.Stmt) (
 fn evaluate(self: *Self, allocator: Allocator, expr: *const ast.Expr) (EvaluationError || RuntimeError)!Value {
     switch (expr.*) {
         .assign => |assignment| {
+            self.debugPrint("  Evaluating assignment expression...\n", .{});
             return try self.evaluateAssignmentExpr(allocator, &assignment);
         },
 
         .binary => |binary| {
+            self.debugPrint("  Evaluating binary expression...\n", .{});
             return try self.evaluateBinaryExpr(allocator, &binary);
         },
         .logical => |logical| {
+            self.debugPrint("  Evaluating logical expression...\n", .{});
             return try self.evaluateLogicalExpr(allocator, &logical);
         },
         .unary => |unary| {
+            self.debugPrint("  Evaluating unary expression...\n", .{});
             return try self.evaluateUnaryExpr(allocator, &unary);
         },
         .grouping => |group| {
+            self.debugPrint("  Evaluating grouping expression...\n", .{});
             return try self.evaluate(allocator, group.inner);
         },
         .literal => |literal| {
+            self.debugPrint("  Evaluating literal expression...\n", .{});
             return literal.evaluate(allocator);
         },
 
@@ -323,6 +404,7 @@ fn evaluate(self: *Self, allocator: Allocator, expr: *const ast.Expr) (Evaluatio
         // Other info related to the error (like 'lexeme') cannot be passed back
         // to the caller.
         .variable => |variable| {
+            self.debugPrint("  Evaluating variable declaration expression...\n", .{});
             const name = variable.lexeme.?;
             return self.env.*.getValue(name) catch |err| switch (err) {
                 RuntimeError.UndefinedVariable => {
@@ -401,6 +483,39 @@ fn evaluateBinaryExpr(self: *Self, allocator: Allocator, binary: *const ast.Bina
         .EqualEqual => {
             const is_equal = left_value.isEqual(right_value) catch false;
             return Value{ .boolean = is_equal };
+        },
+
+        .Less => {
+            if (!left_value.isNumber() or !right_value.isNumber()) {
+                return error.InvalidBinaryOperands;
+            }
+            const is_less = left_value.doComparison(right_value, .lesser) 
+                catch Value{ .boolean = false };
+            return is_less;
+        },
+        .LessEqual => {
+            if (!left_value.isNumber() or !right_value.isNumber()) {
+                return error.InvalidBinaryOperands;
+            }
+            const is_less_equal = left_value.doComparison(right_value, .lesser_equal)
+                catch Value{ .boolean = false };
+            return is_less_equal;
+        },
+        .Greater => {
+            if (!left_value.isNumber() or !right_value.isNumber()) {
+                return error.InvalidBinaryOperands;
+            }
+            const is_greater = left_value.doComparison(right_value, .greater) 
+                catch Value{ .boolean = false };
+            return is_greater;
+        },
+        .GreaterEqual => {
+            if (!left_value.isNumber() or !right_value.isNumber()) {
+                return error.InvalidBinaryOperands;
+            }
+            const is_greater_equal = left_value.doComparison(right_value, .greater_equal)
+                catch Value{ .boolean = false };
+            return is_greater_equal;
         },
 
         else => {

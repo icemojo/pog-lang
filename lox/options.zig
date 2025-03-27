@@ -6,6 +6,8 @@ pub const Options = struct {
     verbose: bool,
     show_help: bool,
     show_tokens: bool,
+    debug_parser: bool,
+    debug_ast: bool,
     show_env: bool,
     repl_start: bool,
     input_file_path: ?[]u8,
@@ -22,6 +24,8 @@ pub fn parseOptions(allocator: Allocator) Options {
         .verbose = false,
         .show_help = false,
         .show_tokens = false,
+        .debug_parser = false,
+        .debug_ast = false,
         .show_env = false,
         .repl_start = false,
         .input_file_path = null,
@@ -38,6 +42,14 @@ pub fn parseOptions(allocator: Allocator) Options {
         }
         if (eql(u8, arg, "-t") or eql(u8, arg, "--tokenize")) {
             options.show_tokens = true;
+            continue;
+        }
+        if (eql(u8, arg, "-p") or eql(u8, arg, "--parser")) {
+            options.debug_parser = true;
+            continue;
+        }
+        if (eql(u8, arg, "-a") or eql(u8, arg, "--ast")) {
+            options.debug_ast = true;
             continue;
         }
         if (eql(u8, arg, "-e") or eql(u8, arg, "--env")) {
