@@ -286,13 +286,14 @@ const RuntimeError = error {
     UninitializedVariable,
     UndefinedVariable,
     AlreadyDefinedVariable,
+    FunctionArityMismatch,
 };
+
+const Self = @This();
 
 debug_print: bool,
 debug_env: bool,
 env: *Environment,
-
-const Self = @This();
 
 pub fn init(allocator: Allocator) Self {
     return .{
@@ -416,6 +417,11 @@ fn evaluate(self: *Self, allocator: Allocator, expr: *const ast.Expr) (Evaluatio
                     return err;
                 },
             };
+        },
+
+        .func_call => |func_call| {
+            const return_value = try self.evaluateFunctionCallExpr(allocator, &func_call);
+            return return_value;
         },
     }
 }
@@ -579,6 +585,41 @@ fn evaluateUnaryExpr(self: *Self, allocator: Allocator, unary: *const ast.UnaryE
             return value;
         }
     }
+}
+
+const LoxCallable = @import("LoxCallable.zig").LoxCallable;
+
+// NOTE(yemon): 1) free functions can be called
+//              2) 'class definitions' can be called to construct a new instance
+//              3) class 'member functions' can be called in scope of its instance
+fn evaluateFunctionCallExpr(self: *Self, allocator: Allocator, func_call: *const ast.FunctionCall) (EvaluationError || RuntimeError)!Value {
+    // NOTE(yemon): the most viable evaluation route should probably be the 
+    // '.variable' which would in turn result an identifier
+    const callee = try self.evaluate(allocator, func_call.callee);
+
+    var evaluated_args = std.ArrayList(Value).init(allocator);
+    if (func_call.arguments) |args| {
+        for (args.items) |arg| {
+            const arg_value = try self.evaluate(allocator, arg);
+            try evaluated_args.append(arg_value);
+        }
+    }
+
+    // TODO(yemon): make sure that the `callee` "implements" the `LoxCallable`
+    // so that it won't crash on something like `"Hello"()`
+
+    // convert the 'callee' to this...
+    // TODO(yemon): Can the `LoxCallable` be comptime generated??
+    var lox_function = LoxCallable(@TypeOf(callee)).init(allocator);
+    if (evaluated_args.items.len != lox_function.arity()) {
+        debug.print("[ERR] Expected {} arguments, but received {}.\n", .{ 
+            lox_function.arity(), evaluated_args.items.len 
+        });
+        return RuntimeError.FunctionArityMismatch;
+    }
+
+    const func_return: Value = lox_function.call(allocator, self, &evaluated_args);
+    return func_return;
 }
 
 fn executeBlock(self: *Self, allocator: Allocator, statements: std.ArrayList(*ast.Stmt)) !void {

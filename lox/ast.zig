@@ -7,104 +7,6 @@ const Allocator = @import("std").mem.Allocator;
 const Token = @import("lexer.zig").Token;
 const Value = @import("interpreter.zig").Value;
 
-pub fn createAssignmentExpr(allocator: Allocator, variable: Token, value: *Expr) AllocError!*Expr {
-    if (variable.lexeme) |lexeme| {
-        const target_name = try allocator.alloc(u8, lexeme.len);
-        @memcpy(target_name, lexeme);
-
-        const expr = try allocator.create(Expr);
-        expr.* = Expr{
-            .assign = AssignmentExpr{
-                .name = target_name,
-                .value = value,
-            },
-        };
-        return expr;
-    } else {
-        return AllocError.OutOfMemory;
-    }
-}
-
-pub fn createBinaryExpr(allocator: Allocator, left: *Expr, optr: Token, right: *Expr) !*Expr {
-    const expr = try allocator.create(Expr);
-    expr.* = Expr{
-        .binary = BinaryExpr{
-            .left = left,
-            .optr = optr,
-            .right = right,
-        },
-    };
-    return expr;
-}
-
-pub fn createLogicalExpr(allocator: Allocator, left: *Expr, optr: Token, right: *Expr) !*Expr {
-    const expr = try allocator.create(Expr);
-    expr.* = Expr{
-        .logical = LogicalExpr{
-            .left = left,
-            .optr = optr,
-            .right = right,
-        },
-    };
-    return expr;
-}
-
-pub fn createUnaryExpr(allocator: Allocator, optr: Token, right: *Expr) !*Expr {
-    const expr = try allocator.create(Expr);
-    expr.* = Expr{
-        .unary = UnaryExpr{
-            .optr = optr,
-            .right = right,
-        },
-    };
-    return expr;
-}
-
-pub fn createGroupingExpr(allocator: Allocator, inner: *Expr) !*Expr {
-    const expr = try allocator.create(Expr);
-    expr.* = Expr{
-        .grouping = GroupingExpr{
-            .inner = inner,
-        },
-    };
-    return expr;
-}
-
-pub fn createLiteral(allocator: Allocator, value: LiteralExpr) !*Expr {
-    const expr = try allocator.create(Expr);
-    expr.* = Expr{
-        .literal = value,
-    };
-    return expr;
-}
-
-pub fn createStringLiteral(allocator: Allocator, string_value: []const u8) !*Expr {
-    // NOTE(yemon): Double leakage here then the other 'create' functions...
-    const target_value = try allocator.alloc(u8, string_value.len);
-    @memcpy(target_value, string_value);
-
-    const expr = try allocator.create(Expr);
-    expr.* = Expr{
-        .literal = LiteralExpr{
-            .text = target_value,
-        },
-    };
-    return expr;
-}
-
-pub fn createVariableExpr(allocator: Allocator, name: Token) !*Expr {
-    // NOTE(yemon): Could the `name` Token's lexeme and literal could cause problems
-    // in terms of their lifetimes here. If you think about it, the heap allocated `expr`
-    // here can potentially outlive the `source` string, of which the tokens were created.
-    const expr = try allocator.create(Expr);
-    expr.* = Expr{
-        .variable = name,
-    };
-    return expr;
-}
-
-const VariableExpr = Token;
-
 pub const Expr = union(enum) {
     assign: AssignmentExpr,
     binary: BinaryExpr,
@@ -113,6 +15,7 @@ pub const Expr = union(enum) {
     grouping: GroupingExpr,
     literal: LiteralExpr,
     variable: VariableExpr,
+    func_call: FunctionCall,
 
     pub fn display(self: Expr, allocator: Allocator, line_break: bool) void { 
         switch (self) {
@@ -163,6 +66,9 @@ pub const Expr = union(enum) {
             .variable => |variable| {
                 return variable.toString();
             },
+            .func_call => |func_call| {
+                return func_call.toString(allocator);
+            },
         }
     }
 };
@@ -178,6 +84,24 @@ pub const AssignmentExpr = struct {
         return str;
     }
 };
+
+pub fn createAssignmentExpr(allocator: Allocator, variable: Token, value: *Expr) AllocError!*Expr {
+    if (variable.lexeme) |lexeme| {
+        const target_name = try allocator.alloc(u8, lexeme.len);
+        @memcpy(target_name, lexeme);
+
+        const expr = try allocator.create(Expr);
+        expr.* = Expr{
+            .assign = AssignmentExpr{
+                .name = target_name,
+                .value = value,
+            },
+        };
+        return expr;
+    } else {
+        return AllocError.OutOfMemory;
+    }
+}
 
 pub const BinaryExpr = struct {
     left:  *Expr,
@@ -195,6 +119,18 @@ pub const BinaryExpr = struct {
     }
 };
 
+pub fn createBinaryExpr(allocator: Allocator, left: *Expr, optr: Token, right: *Expr) !*Expr {
+    const expr = try allocator.create(Expr);
+    expr.* = Expr{
+        .binary = BinaryExpr{
+            .left = left,
+            .optr = optr,
+            .right = right,
+        },
+    };
+    return expr;
+}
+
 pub const LogicalExpr = struct {
     left: *Expr,
     optr: Token,
@@ -211,6 +147,18 @@ pub const LogicalExpr = struct {
     }
 };
 
+pub fn createLogicalExpr(allocator: Allocator, left: *Expr, optr: Token, right: *Expr) !*Expr {
+    const expr = try allocator.create(Expr);
+    expr.* = Expr{
+        .logical = LogicalExpr{
+            .left = left,
+            .optr = optr,
+            .right = right,
+        },
+    };
+    return expr;
+}
+
 pub const UnaryExpr = struct {
     optr:  Token,
     right: *Expr,
@@ -225,6 +173,17 @@ pub const UnaryExpr = struct {
     }
 };
 
+pub fn createUnaryExpr(allocator: Allocator, optr: Token, right: *Expr) !*Expr {
+    const expr = try allocator.create(Expr);
+    expr.* = Expr{
+        .unary = UnaryExpr{
+            .optr = optr,
+            .right = right,
+        },
+    };
+    return expr;
+}
+
 pub const GroupingExpr = struct {
     inner: *Expr,
 
@@ -235,6 +194,16 @@ pub const GroupingExpr = struct {
         return str;
     }
 };
+
+pub fn createGroupingExpr(allocator: Allocator, inner: *Expr) !*Expr {
+    const expr = try allocator.create(Expr);
+    expr.* = Expr{
+        .grouping = GroupingExpr{
+            .inner = inner,
+        },
+    };
+    return expr;
+}
 
 pub const LiteralExpr = union(enum) {
     integer: i64,
@@ -301,6 +270,74 @@ pub const LiteralExpr = union(enum) {
         return str;
     }
 };
+
+pub fn createLiteral(allocator: Allocator, value: LiteralExpr) !*Expr {
+    const expr = try allocator.create(Expr);
+    expr.* = Expr{
+        .literal = value,
+    };
+    return expr;
+}
+
+pub fn createStringLiteral(allocator: Allocator, string_value: []const u8) !*Expr {
+    // NOTE(yemon): Double leakage here then the other 'create' functions...
+    const target_value = try allocator.alloc(u8, string_value.len);
+    @memcpy(target_value, string_value);
+
+    const expr = try allocator.create(Expr);
+    expr.* = Expr{
+        .literal = LiteralExpr{
+            .text = target_value,
+        },
+    };
+    return expr;
+}
+
+const VariableExpr = Token;
+
+pub fn createVariableExpr(allocator: Allocator, name: Token) !*Expr {
+    // NOTE(yemon): Could the `name` Token's lexeme and literal could cause problems
+    // in terms of their lifetimes here. If you think about it, the heap allocated `expr`
+    // here can potentially outlive the `source` string, of which the tokens were created.
+    const expr = try allocator.create(Expr);
+    expr.* = Expr{
+        .variable = name,
+    };
+    return expr;
+}
+
+pub const FunctionCall = struct {
+    callee: *Expr,
+    paren: Token,
+    arguments: ?std.ArrayList(*Expr),
+
+    pub fn toString(self: FunctionCall, allocator: Allocator) []const u8 {
+        if (self.arguments) |args| {
+            if (args.items.len > 0) {
+                return fmt.allocPrint(allocator, "{s}({} args) ...\n", .{ 
+                    self.callee.*.toString(allocator), args.items.len 
+                }) catch "func ...";
+            } else {
+                return fmt.allocPrint(allocator, "{s}() ...\n", .{ self.callee.*.toString(allocator) }) 
+                    catch "func ...";
+            }
+        } else {
+            return fmt.allocPrint(allocator, "{s}() ...\n", .{ self.callee.*.toString(allocator) }) catch "func ...";
+        }
+    }
+};
+
+pub fn createFunctionCall(allocator: Allocator, callee: *Expr, paren: Token, arguments: ?std.ArrayList(*Expr)) !*Expr {
+    const expr = try allocator.create(Expr);
+    expr.* = Expr{
+        .func_call = FunctionCall{
+            .callee = callee,
+            .paren = paren,
+            .arguments = arguments,
+        },
+    };
+    return expr;
+}
 
 pub const Stmt = union(enum) {
     variable: VariableStmt,

@@ -23,13 +23,13 @@ const ParserError = error {
     OutOfMemory,
 };
 
+const Self = @This();
+
 tokens: *std.ArrayList(Token),
 current: usize,
 has_error: bool,
 debug_print: bool,
 debug_ast: bool,
-
-const Self = @This();
 
 pub fn init(tokens: *std.ArrayList(Token), debug_print: bool, debug_ast: bool) Self {
     return .{
@@ -377,17 +377,52 @@ fn unary(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
         const optr = self.previous().?;
         const right = try self.unary(allocator);
         const expr = try ast.createUnaryExpr(allocator, optr, right);
-        debugPrint(self, "Unary done with unary. {s}\n", .{ expr.toString(allocator) });
+        self.debugPrint("Unary done with unary prefix. {s}\n", .{ expr.toString(allocator) });
         return expr;
     } else {
-        if (self.primary(allocator)) |it| {
-            debugPrint(self, "Unary done with primary. {s}\n", .{ it.toString(allocator) });
-            return it;
-        } else |err| {
-            debugPrint(self, "Unary done with error {}\n", .{ err });
-            return err;
+        const func = try self.funcCall(allocator);
+        self.debugPrint("Unary done with function call.\n", .{});
+        return func;
+    }
+}
+
+fn funcCall(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
+    var expr = try self.primary(allocator);
+
+    while (true) {
+        if (self.advanceIfMatched(.LeftParen)) {
+            expr = try self.finishCall(allocator, expr);
+            return expr;
+        } else {
+            break;
         }
     }
+    return expr;
+}
+
+fn finishCall(self: *Self, allocator: Allocator, callee: *ast.Expr) ParserError!*ast.Expr {
+    var arguments = std.ArrayList(*ast.Expr).init(allocator);
+
+    if (!self.check(.RightParen)) {
+        var arg = try self.expression(allocator);
+        try arguments.append(arg);
+        while (self.advanceIfMatched(.Comma)) {
+            if (arguments.items.len > 255) {
+                // NOTE(yemon): report error instead of throwing, since throwing will 
+                // kick into the panic mode and try to synchronize.
+                reportError(self.peek(), "Functions cannot have more than 255 arguments.");
+            }
+            arg = try self.expression(allocator);
+            try arguments.append(arg);
+        }
+    }
+    var paren: Token =  undefined;
+    const parser_result = self.consume(.RightParen, "Expect ')' after function arguments.");
+    if (parser_result.error_message == null) {
+        paren = parser_result.token;
+    }
+
+    return ast.createFunctionCall(allocator, callee, paren, arguments);
 }
 
 fn primary(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
