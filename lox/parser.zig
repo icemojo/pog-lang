@@ -82,6 +82,8 @@ fn statement(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
         return try self.ifStmt(allocator);
     } else if (self.advanceIfMatched(.While)) {
         return try self.whileStmt(allocator);
+    } else if (self.advanceIfMatched(.For)) {
+        return try self.forStmt(allocator);
     } else if (self.advanceIfMatched(.LeftBrace)) {
         var block = ast.Block.init(allocator);
         const statements = try self.blockStmts(allocator);
@@ -165,6 +167,64 @@ fn whileStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
 
     const while_stmt = try ast.createWhileStmt(allocator, condition, body);
     return while_stmt;
+}
+
+fn forStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
+    self.debugPrint("Seems like a for statement block...\n", .{});
+    _ = self.consume(.LeftParen, "Expect '(' after 'for'.");
+    var initializer: ?*ast.Stmt = null;
+    if (self.advanceIfMatched(.Semicolon)) {
+        initializer = null;
+    } else if (self.advanceIfMatched(.Var)) {
+        initializer = try self.variableDeclareStmt(allocator);
+    } else {
+        initializer = try self.expressionStmt(allocator);
+    }
+
+    var condition: *ast.Expr = undefined;
+    if (!self.check(.Semicolon)) {
+        condition = try self.expression(allocator);
+    } else {
+        condition = try ast.createLiteral(allocator, ast.LiteralExpr{ .boolean = true });
+    }
+    _ = self.consume(.Semicolon, "Expect ';' after 'for' loop condition.");
+
+    var increment: ?*ast.Expr = null;
+    if (!self.check(.RightParen)) {
+        increment = try self.expression(allocator);
+    }
+    _ = self.consume(.RightParen, "Expect ')' after 'for' clauses.");
+
+    // NOTE(yemon): De-sugered loop structure instead of having separate AST node 
+    // for the 'for' loop, composing it similar to a 'block' using the 'while' loop.
+    var body_block = ast.Block.init(allocator);
+    const body_stmt = try self.statement(allocator);
+    try body_block.statements.append(body_stmt);
+
+    if (increment) |it| {
+        const increment_stmt = try ast.createExprStmt(allocator, it);
+        try body_block.statements.append(increment_stmt);
+    }
+
+    const loop_body = try allocator.create(ast.Stmt);
+    loop_body.* = ast.Stmt{
+        .block = body_block,
+    };
+    const for_loop = try ast.createWhileStmt(allocator, condition, loop_body);
+
+    if (initializer) |it| {
+        var for_loop_initialized = ast.Block.init(allocator);
+        try for_loop_initialized.statements.append(it);
+        try for_loop_initialized.statements.append(for_loop);
+
+        const result = try allocator.create(ast.Stmt);
+        result.* = ast.Stmt{
+            .block = for_loop_initialized,
+        };
+        return result;
+    } else {
+        return for_loop;
+    }
 }
 
 // NOTE(yemon): This is not returning `*ast.Stmt` on purpose.
