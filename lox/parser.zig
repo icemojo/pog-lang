@@ -68,11 +68,44 @@ pub fn parse(self: *Self, allocator: Allocator) ParserError!std.ArrayList(*ast.S
 }
 
 fn declaration(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
-    if (self.advanceIfMatched(.Var)) {
+    if (self.advanceIfMatched(.Function)) {
+        return try self.functionDeclareStmt(allocator, "function");
+    } else if (self.advanceIfMatched(.Var)) {
         return try self.variableDeclareStmt(allocator);
     } else {
         return try self.statement(allocator);
     }
+}
+
+fn functionDeclareStmt(self: *Self, allocator: Allocator, comptime kind: []const u8) ParserError!*ast.Stmt {
+    var parser_result = self.consume(.Identifier, "Expect " ++ kind ++ " name.");
+    const name: Token = if (parser_result.error_message == null) parser_result.token 
+        else Token{ .token_type = .Invalid, .lexeme = null, .literal = null, .line = 0 };
+
+    _ = self.consume(.LeftParen, "Expect '(' after " ++ kind ++ " name.");
+    var params = std.ArrayList(Token).init(allocator);
+
+    while (!self.check(.RightParen) and params.items.len <= 255) {
+        parser_result = self.consume(.Identifier, "Expect an identifier as a " ++ kind ++ " parameter.");
+        if (parser_result.error_message == null) {
+            try params.append(parser_result.token);
+        }
+        _ = self.advanceIfMatched(.Comma);
+    }
+    _ = self.consume(.RightParen, "Expect ')' after the end of parameters.");
+
+    _ = self.consume(.LeftBrace, "Expect '{' before the " ++ kind ++ " body.");
+    const body = try self.blockStmts(allocator);
+
+    const stmt = try allocator.create(ast.Stmt);
+    stmt.* = ast.Stmt{
+        .func_stmt = ast.FunctionStmt{
+            .name = name,
+            .params = if (params.items.len > 0) params else null,
+            .body = body,
+        },
+    };
+    return stmt;
 }
 
 fn statement(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {

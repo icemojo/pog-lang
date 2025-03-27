@@ -346,6 +346,7 @@ pub const Stmt = union(enum) {
     if_stmt: IfStmt,
     while_stmt: WhileStmt,
     block: Block,
+    func_stmt: FunctionStmt,
 
     pub fn toString(self: Stmt, allocator: Allocator) []const u8 {
         switch (self) {
@@ -366,7 +367,14 @@ pub const Stmt = union(enum) {
             },
             .block => |_| {
                 return "{...}";
-            }
+            },
+
+            .func_stmt => |func_stmt| {
+                const name = if (func_stmt.name.lexeme) |lexeme| lexeme else "(NA)";
+                const str = fmt.allocPrint(allocator, "fun {s}(...)", .{ name }) 
+                    catch "fun ...";
+                return str;
+            },
         }
     }
 };
@@ -513,6 +521,12 @@ pub const Block = struct {
             .statements = std.ArrayList(*Stmt).init(allocator),
         };
     }
+};
+
+pub const FunctionStmt = struct {
+    name: Token,
+    params: ?std.ArrayList(Token),
+    body: std.ArrayList(*Stmt),
 };
 
 // -----------------------------------------------------------------------------

@@ -4,6 +4,7 @@ const log = @import("std").log;
 const Allocator = @import("std").mem.Allocator;
 
 const ast = @import("ast.zig");
+const LoxCallable = @import("lox_callable.zig").LoxCallable;
 
 const ArithmeticOp = enum {
     substract,
@@ -311,10 +312,12 @@ pub fn init(allocator: Allocator) Self {
 
 // TODO(yemon): `__env__`, `__name__`, `print()`, `clock()` so on and so forth...
 fn initBuiltins(self: *Self, allocator: Allocator) !void {
+    _ = self;
+    _ = allocator;
     // `clock_func` should return this when called:
     // `(double)System.currentTimeMillis() / 1000.0;` with arity 0
-    const clock_func = LoxCallable().init(allocator, "clock");
-    try self.global_env.defineFunction("clock", clock_func);
+    // const clock_func = LoxCallable().init(allocator, "clock");
+    // try self.global_env.defineFunction("clock", clock_func);
 }
 
 pub fn executeAll(self: *Self, allocator: Allocator, statements: std.ArrayList(*ast.Stmt)) (EvaluationError || RuntimeError)!void {
@@ -375,7 +378,13 @@ fn evaluateStatement(self: *Self, allocator: Allocator, stmt: *const ast.Stmt) (
         .block => |block| {
             self.debugPrint("Evaluating a block...\n", .{});
             _ = try self.executeBlock(allocator, block.statements);
-        }
+        },
+
+        .func_stmt => |func_stmt| {
+            const name = if (func_stmt.name.lexeme) |lexeme| lexeme else "(NA)";
+            self.debugPrint("Executing the function {s}...\n", .{ name });
+            _ = try self.executeBlock(allocator, func_stmt.body);
+        },
     }
 }
 
@@ -429,6 +438,7 @@ fn evaluate(self: *Self, allocator: Allocator, expr: *const ast.Expr) (Evaluatio
         },
 
         .func_call => |func_call| {
+            self.debugPrint("  Evaluating function call...\n", .{});
             const return_value = try self.evaluateFunctionCallExpr(allocator, &func_call);
             return return_value;
         },
@@ -596,14 +606,12 @@ fn evaluateUnaryExpr(self: *Self, allocator: Allocator, unary: *const ast.UnaryE
     }
 }
 
-const LoxCallable = @import("lox_callable.zig").LoxCallable;
-
 // NOTE(yemon): 1) free functions can be called
 //              2) 'class definitions' can be called to construct a new instance
 //              3) class 'member functions' can be called in scope of its instance
 fn evaluateFunctionCallExpr(self: *Self, allocator: Allocator, func_call: *const ast.FunctionCall) (EvaluationError || RuntimeError)!Value {
     // NOTE(yemon): the most viable evaluation route should probably be the 
-    // '.variable' which would in turn result an identifier
+    // '.variable' which would in turn result an 'identifier'
     const callee: Value = try self.evaluate(allocator, func_call.callee);
     _ = callee;
 
@@ -618,11 +626,8 @@ fn evaluateFunctionCallExpr(self: *Self, allocator: Allocator, func_call: *const
     // TODO(yemon): make sure that the `callee` "implements" the `LoxCallable`,
     // or at least resolved to an identifier, so that it won't crash 
     // on something like `"Hello"()`
-
-    // convert the 'callee' to this...
-    // TODO(yemon): Can the `LoxCallable` be comptime generated??
-    //var lox_func = LoxCallable(@TypeOf(callee)).init(allocator);
-    var lox_func = LoxCallable().init(allocator, "user_call");
+    const name = "user_call";        // TODO(yemon): get from the caller 'identifier' somehow
+    const lox_func = LoxCallable(Value, Value).init(name, executeFunction, evaluated_args);
 
     if (evaluated_args.items.len != lox_func.arity()) {
         debug.print("[ERR] Expected {} arguments, but received {}.\n", .{ 
@@ -631,10 +636,15 @@ fn evaluateFunctionCallExpr(self: *Self, allocator: Allocator, func_call: *const
         return RuntimeError.FunctionArityMismatch;
     }
 
-    const func_return: Value = lox_func.call(allocator, self, 
-        if (evaluated_args.items.len > 0) &evaluated_args else null
-    );
-    return func_return;
+    const func_return: ?Value = lox_func.call(allocator);
+    return if (func_return) |ret_value| ret_value else Value{ .nil = true };
+}
+
+fn executeFunction(allocator: Allocator, args: ?std.ArrayList(Value)) ?Value {
+    _ = allocator;
+    _ = args;
+    debug.print("Will do something!\n", .{});
+    return null;
 }
 
 fn executeBlock(self: *Self, allocator: Allocator, statements: std.ArrayList(*ast.Stmt)) !void {
@@ -654,12 +664,13 @@ fn executeBlock(self: *Self, allocator: Allocator, statements: std.ArrayList(*as
 const Environment = struct {
     enclosing: ?*Environment,
     values: std.StringHashMap(Value),
-    functions: std.ArrayList(LoxCallable()),
+    functions: std.ArrayList(LoxCallable(Value, Value)),
 
     fn init(allocator: Allocator, enclosing: ?*Environment) *Environment {
         const env = allocator.create(Environment) catch unreachable;
         env.*.enclosing = enclosing;
         env.*.values = std.StringHashMap(Value).init(allocator);
+        env.*.functions = std.ArrayList(LoxCallable(Value, Value)).init(allocator);
         return env;
     }
 
@@ -670,7 +681,7 @@ const Environment = struct {
         try self.values.put(name, value);
     }
 
-    fn defineFunction(self: *Environment, name: []const u8, callable: LoxCallable()) !void {
+    fn defineFunction(self: *Environment, name: []const u8, callable: LoxCallable(Value, Value)) !void {
         if (self.alreadyDefinedFunction(name)) {
             return RuntimeError.AlreadyDefinedFunction;
         }
