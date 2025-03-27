@@ -286,6 +286,7 @@ const RuntimeError = error {
     UninitializedVariable,
     UndefinedVariable,
     AlreadyDefinedVariable,
+    AlreadyDefinedFunction,
     FunctionArityMismatch,
 };
 
@@ -293,19 +294,27 @@ const Self = @This();
 
 debug_print: bool,
 debug_env: bool,
+global_env: *Environment,
 env: *Environment,
 
 pub fn init(allocator: Allocator) Self {
-    return .{
+    const global_env = Environment.init(allocator, null);
+    var interpreter = Self{
         .debug_print = false,
         .debug_env = false,
-        .env = Environment.init(allocator, null),
+        .global_env = global_env,
+        .env = global_env,
     };
+    interpreter.initBuiltins(allocator) catch unreachable;
+    return interpreter;
 }
 
-fn initBuiltins(self: *Self) void {
-    _ = self;
-    // TODO(yemon): `__env__`, `__name__` so on and so forth...
+// TODO(yemon): `__env__`, `__name__`, `print()`, `clock()` so on and so forth...
+fn initBuiltins(self: *Self, allocator: Allocator) !void {
+    // `clock_func` should return this when called:
+    // `(double)System.currentTimeMillis() / 1000.0;` with arity 0
+    const clock_func = LoxCallable().init(allocator, "clock");
+    try self.global_env.defineFunction("clock", clock_func);
 }
 
 pub fn executeAll(self: *Self, allocator: Allocator, statements: std.ArrayList(*ast.Stmt)) (EvaluationError || RuntimeError)!void {
@@ -587,7 +596,7 @@ fn evaluateUnaryExpr(self: *Self, allocator: Allocator, unary: *const ast.UnaryE
     }
 }
 
-const LoxCallable = @import("LoxCallable.zig").LoxCallable;
+const LoxCallable = @import("lox_callable.zig").LoxCallable;
 
 // NOTE(yemon): 1) free functions can be called
 //              2) 'class definitions' can be called to construct a new instance
@@ -595,7 +604,8 @@ const LoxCallable = @import("LoxCallable.zig").LoxCallable;
 fn evaluateFunctionCallExpr(self: *Self, allocator: Allocator, func_call: *const ast.FunctionCall) (EvaluationError || RuntimeError)!Value {
     // NOTE(yemon): the most viable evaluation route should probably be the 
     // '.variable' which would in turn result an identifier
-    const callee = try self.evaluate(allocator, func_call.callee);
+    const callee: Value = try self.evaluate(allocator, func_call.callee);
+    _ = callee;
 
     var evaluated_args = std.ArrayList(Value).init(allocator);
     if (func_call.arguments) |args| {
@@ -605,20 +615,25 @@ fn evaluateFunctionCallExpr(self: *Self, allocator: Allocator, func_call: *const
         }
     }
 
-    // TODO(yemon): make sure that the `callee` "implements" the `LoxCallable`
-    // so that it won't crash on something like `"Hello"()`
+    // TODO(yemon): make sure that the `callee` "implements" the `LoxCallable`,
+    // or at least resolved to an identifier, so that it won't crash 
+    // on something like `"Hello"()`
 
     // convert the 'callee' to this...
     // TODO(yemon): Can the `LoxCallable` be comptime generated??
-    var lox_function = LoxCallable(@TypeOf(callee)).init(allocator);
-    if (evaluated_args.items.len != lox_function.arity()) {
+    //var lox_func = LoxCallable(@TypeOf(callee)).init(allocator);
+    var lox_func = LoxCallable().init(allocator, "user_call");
+
+    if (evaluated_args.items.len != lox_func.arity()) {
         debug.print("[ERR] Expected {} arguments, but received {}.\n", .{ 
-            lox_function.arity(), evaluated_args.items.len 
+            lox_func.arity(), evaluated_args.items.len 
         });
         return RuntimeError.FunctionArityMismatch;
     }
 
-    const func_return: Value = lox_function.call(allocator, self, &evaluated_args);
+    const func_return: Value = lox_func.call(allocator, self, 
+        if (evaluated_args.items.len > 0) &evaluated_args else null
+    );
     return func_return;
 }
 
@@ -632,9 +647,14 @@ fn executeBlock(self: *Self, allocator: Allocator, statements: std.ArrayList(*as
     self.env = parent_env;
 }
 
+// TODO(yemon): Might want to combine the variable and function namespaces together,
+// since it's kinda rare in languages for both of them to live in two different ones
+// (e.g., Common Lisp). If the function needs to be a "first-class citizen", then they 
+// both have to exist in the same namespace.
 const Environment = struct {
     enclosing: ?*Environment,
     values: std.StringHashMap(Value),
+    functions: std.ArrayList(LoxCallable()),
 
     fn init(allocator: Allocator, enclosing: ?*Environment) *Environment {
         const env = allocator.create(Environment) catch unreachable;
@@ -648,6 +668,13 @@ const Environment = struct {
             return RuntimeError.AlreadyDefinedVariable;
         }
         try self.values.put(name, value);
+    }
+
+    fn defineFunction(self: *Environment, name: []const u8, callable: LoxCallable()) !void {
+        if (self.alreadyDefinedFunction(name)) {
+            return RuntimeError.AlreadyDefinedFunction;
+        }
+        try self.functions.append(callable);
     }
 
     fn assign(self: *Environment, name: []const u8, value: Value) !void {
@@ -681,6 +708,13 @@ const Environment = struct {
         } else {
             return false;
         }
+    }
+
+    fn alreadyDefinedFunction(self: *const Environment, name: []const u8) bool {
+        for (self.functions.items) |func| {
+            return std.mem.eql(u8, func.name, name);
+        }
+        return false;
     }
 
     fn display(self: *const Environment, allocator: Allocator) void {

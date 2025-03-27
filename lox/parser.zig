@@ -420,6 +420,8 @@ fn finishCall(self: *Self, allocator: Allocator, callee: *ast.Expr) ParserError!
     const parser_result = self.consume(.RightParen, "Expect ')' after function arguments.");
     if (parser_result.error_message == null) {
         paren = parser_result.token;
+    } else {
+        // TODO(yemon): should probably assign something to `paren`
     }
 
     return ast.createFunctionCall(allocator, callee, paren, arguments);
