@@ -1,4 +1,5 @@
 const std       = @import("std");
+const fmt       = @import("std").fmt;
 const debug     = @import("std").debug;
 const Allocator = @import("std").mem.Allocator;
 
@@ -6,6 +7,7 @@ const lexer     = @import("lexer.zig");
 const Token     = @import("lexer.zig").Token;
 const TokenType = @import("lexer.zig").TokenType;
 const ast       = @import("ast.zig");
+const report    = @import("report.zig");
 
 // NOTE(yemon): Inferred error sets are not compatible with
 // recursive function calls. So, Zig needs an explicit error 
@@ -13,10 +15,16 @@ const ast       = @import("ast.zig");
 const ParserError = error {
     UnknownPrimaryToken,
     InvalidStringComposition,
+    InvalidFunctionComposition,
+    InvalidBranchComposition,
+    InvalidLoopComposition,
+    InvalidBlockComposition,
+    InvalidExpressionStatement,
     InvalidSyncPosition,
     InvalidSyncToken,
     InvalidIdentifierDeclaration,
     InvalidAssignmentTarget,
+    UnterminatedStatement,
     DunnoIdentifier,
     CanSkip,
 
@@ -47,9 +55,12 @@ pub fn parse(self: *Self, allocator: Allocator) ParserError!std.ArrayList(*ast.S
         if (self.declaration(allocator)) |stmt| {
             try statements.append(stmt);
         } else |err| {
-            errorPrint(self, "Parsing a statement failed with '{}'. Need to synchronize until end of statement.\n", .{ err });
+            // TODO(yemon): might wanna do the synchronization only based on the reported
+            // error, for instance; only for the block statements like 'if' and 'for'
+            self.debugPrint("Parsing a statement failed with '{}' error. " ++ 
+                "Need to synchronize until end of statement.\n", .{ err, });
             self.synchronize() catch |sync_err| {
-                errorPrint(self, "Synchronization failed with error '{}'.\n", .{ sync_err });
+                self.debugPrint("Synchronization failed with error '{}'.\n", .{ sync_err });
                 break :parsing;
             };
             continue :parsing;
@@ -58,6 +69,7 @@ pub fn parse(self: *Self, allocator: Allocator) ParserError!std.ArrayList(*ast.S
     self.debugPrint("End of all the statements.\n", .{});
 
     if (self.debug_ast) {
+        debug.print("------------------------------------------------------------\n", .{});
         debug.print("Final AST:\n", .{});
         for (statements.items) |stmt| {
             stmt.*.display(0);
@@ -79,60 +91,92 @@ fn declaration(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
 
 fn variableDeclareStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
     self.debugPrint("Seems like a variable declaration statement...\n", .{});
-    var parser_result = self.consume(.Identifier, "Expect a valid identifier declaration.");
-    if (parser_result.error_message) |error_message| {
+    var identifier: Token = undefined;
+
+    if (self.consume(.Identifier)) |it| {
+        identifier = it;
+    } else {
         self.has_error = true;
-        reportError(parser_result.token, error_message);
+        report.errorToken(self.peek(), "Expect a valid identifier declaration.");
         return ParserError.InvalidIdentifierDeclaration;
     }
 
     var var_stmt: *ast.Stmt = undefined;
-    const identifier: Token = parser_result.token;
     self.debugPrint("Identifier name is '{s}'\n", .{ identifier.lexeme.? });
+
     var initializer: ?*ast.Expr = null;
     if (self.advanceIfMatched(.Equal)) {
         initializer = try self.expression(allocator);
     }
-    var_stmt = ast.createVariableStmt(allocator, identifier, initializer) catch |err| switch (err) {
-        ast.AllocError.OutOfMemory => {
-            return ParserError.OutOfMemory;
-        },
-    };
+    var_stmt = ast.createVariableStmt(allocator, identifier, initializer) 
+        catch |err| switch (err) {
+            ast.AllocError.OutOfMemory => {
+                return ParserError.OutOfMemory;
+            },
+        };
 
     // TODO(yemon): this would cause REPL to report an error if the statement 
     // being entered didn't get terminated with ';'
     // Right now, the temporary solution is to add manually add ';' at the end of the
     // tokenizer scanning chain. Hacky, don't like it at all!
-    parser_result = self.consume(.Semicolon, "Expect an EOL terminator ';' after an identifier declaration expression.");
-    if (parser_result.error_message) |error_message| {
+    if (self.consume(.Semicolon) == null) {
         self.has_error = true;
-        reportError(parser_result.token, error_message);
-        return ParserError.InvalidIdentifierDeclaration;
+        report.errorToken(self.peek(), 
+            "Expect an EOL terminator ';' after an identifier declaration expression."
+        );
+        return ParserError.UnterminatedStatement;
     }
 
     return var_stmt;
 }
 
-fn functionDeclareStmt(self: *Self, allocator: Allocator, comptime kind: []const u8) ParserError!*ast.Stmt {
-    var parser_result = self.consume(.Identifier, "Expect " ++ kind ++ " name.");
-    const name: Token = if (parser_result.error_message == null) parser_result.token 
-        else Token{ .token_type = .Invalid, .lexeme = null, .literal = null, .line = 0 };
+fn functionDeclareStmt(
+    self: *Self, 
+    allocator: Allocator, 
+    comptime kind: []const u8
+) ParserError!*ast.Stmt {
+    self.debugPrint("Seems like a function declare block...\n", .{});
 
-    _ = self.consume(.LeftParen, "Expect '(' after " ++ kind ++ " name.");
+    var identifier: Token = undefined;
+
+    if (self.consume(.Identifier)) |it| {
+        identifier = it;
+    } else {
+        self.has_error = true;
+        report.errorToken(self.peek(), "Expect " ++ kind ++ " name.");
+        return ParserError.InvalidFunctionComposition;
+    }
+
+    if (self.consume(.LeftParen) == null) {
+        self.has_error = true;
+        report.errorToken(self.peek(), "Expect '(' after the " ++ kind ++ " name.");
+        return ParserError.InvalidFunctionComposition;
+    }
+
     var params = std.ArrayList(Token).init(allocator);
-
     while (!self.check(.RightParen) and params.items.len <= 255) {
-        parser_result = self.consume(.Identifier, "Expect an identifier as a " ++ kind ++ " parameter.");
-        if (parser_result.error_message == null) {
-            try params.append(parser_result.token);
+        if (self.consume(.Identifier)) |it| {
+            try params.append(it);
         } else {
-            // TODO(yemon): Report the parameter parsing error in place?
+            self.has_error = true;
+            report.errorToken(self.peek(), "Expect an identifier as a " ++ kind ++ " parameter.");
+            return ParserError.InvalidFunctionComposition;
         }
         _ = self.advanceIfMatched(.Comma);
     }
-    _ = self.consume(.RightParen, "Expect ')' after the end of parameters.");
 
-    _ = self.consume(.LeftBrace, "Expect '{' before the " ++ kind ++ " body.");
+    if (self.consume(.RightParen) == null) {
+        self.has_error = true;
+        report.errorToken(self.peek(), "Expect ')' after the end of " ++ kind ++ " parameters.");
+        return ParserError.InvalidFunctionComposition;
+    }
+
+    if (self.consume(.LeftBrace) == null) {
+        self.has_error = true;
+        report.errorToken(self.peek(), "Expect '{' after the " ++ kind ++ " body.");
+        return ParserError.InvalidFunctionComposition;
+    }
+
     const body = try self.blockStmts(allocator);
 
     // TODO(yemon): the 'name' identification is wrong, the last argument name is
@@ -140,7 +184,7 @@ fn functionDeclareStmt(self: *Self, allocator: Allocator, comptime kind: []const
     const stmt = try allocator.create(ast.Stmt);
     stmt.* = ast.Stmt{
         .func_stmt = ast.FunctionStmt{
-            .name = name,
+            .name = identifier,
             .params = if (params.items.len > 0) params else null,
             .body = body,
         },
@@ -175,16 +219,33 @@ fn statement(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
 fn printStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
     self.debugPrint("Seems like a print statement...\n", .{});
     const expr = try self.expression(allocator);
-    _ = self.consume(.Semicolon, "Expect ';' after value.");
+
+    // TODO(yemon): This kinda has the same problem as the variable declare statement
+    // It doesn't really report the error properly in the REPL
+    if (self.consume(.Semicolon) == null) {
+        self.has_error = true;
+        report.errorToken(self.peek(), "Expect ';' after the print statement expression.");
+    }
+
     const stmt = try ast.createPrintStmt(allocator, expr);
     return stmt;
 }
 
 fn ifStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
     self.debugPrint("Seems like an if statement block...\n", .{});
-    _ = self.consume(.LeftParen, "Expect '(' after 'if'.");
+    if (self.consume(.LeftParen) == null) {
+        self.has_error = true;
+        report.errorToken(self.peek(), "Expect '(' before the 'if' condition.");
+        return ParserError.InvalidBranchComposition;
+    }
+
     const condition = try self.expression(allocator);
-    _ = self.consume(.RightParen, "Expect ')' after if condition.");
+
+    if (self.consume(.RightParen) == null) {
+        self.has_error = true;
+        report.errorToken(self.peek(), "Expect ')' after the 'if' condition.");
+        return ParserError.InvalidBranchComposition;
+    }
 
     const then_branch = try self.statement(allocator);
     var else_branch: ?*ast.Stmt = null;
@@ -198,9 +259,19 @@ fn ifStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
 
 fn whileStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
     self.debugPrint("Seems like a while statement block...\n", .{});
-    _ = self.consume(.LeftParen, "Expect '(' after 'while'.");
+    if (self.consume(.LeftParen) == null) {
+        self.has_error = true;
+        report.errorToken(self.peek(), "Expect '(' after the 'while' condition.");
+        return ParserError.InvalidLoopComposition;
+    }
+
     const condition = try self.expression(allocator);
-    _ = self.consume(.RightParen, "Expect ')' after 'while' condition.");
+
+    if (self.consume(.RightParen) == null) {
+        self.has_error = true;
+        report.errorToken(self.peek(), "Expect ')' after the 'while' condition.");
+        return ParserError.InvalidLoopComposition;
+    }
 
     const body = try self.statement(allocator);
 
@@ -210,7 +281,12 @@ fn whileStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
 
 fn forStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
     self.debugPrint("Seems like a for statement block...\n", .{});
-    _ = self.consume(.LeftParen, "Expect '(' after 'for'.");
+    if  (self.consume(.LeftParen) == null) {
+        self.has_error = true;
+        report.errorToken(self.peek(), "Expect '(' after 'for'.");
+        return ParserError.InvalidLoopComposition;
+    }
+
     var initializer: ?*ast.Stmt = null;
     if (self.advanceIfMatched(.Semicolon)) {
         initializer = null;
@@ -226,13 +302,21 @@ fn forStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
     } else {
         condition = try ast.createLiteral(allocator, ast.LiteralExpr{ .boolean = true });
     }
-    _ = self.consume(.Semicolon, "Expect ';' after 'for' loop condition.");
+    if (self.consume(.Semicolon) == null) {
+        self.has_error = true;
+        report.errorToken(self.peek(), "Expect ';' after the 'for' loop condition.");
+        return ParserError.InvalidLoopComposition;
+    }
 
     var increment: ?*ast.Expr = null;
     if (!self.check(.RightParen)) {
         increment = try self.expression(allocator);
     }
-    _ = self.consume(.RightParen, "Expect ')' after 'for' clauses.");
+    if (self.consume(.RightParen) == null) {
+        self.has_error = true;
+        report.errorToken(self.peek(), "Expect ')' after the 'for' clauses.");
+        return ParserError.InvalidLoopComposition;
+    }
 
     // NOTE(yemon): De-sugered loop structure instead of having separate AST node 
     // for the 'for' loop, composing it similar to a 'block' using the 'while' loop.
@@ -273,14 +357,26 @@ fn blockStmts(self: *Self, allocator: Allocator) ParserError!std.ArrayList(*ast.
         const block_stmt = try self.declaration(allocator);
         try statements.append(block_stmt);
     }
-    _ = self.consume(.RightBrace, "Expect '}' at the end of a block.");
+    
+    if (self.consume(.RightBrace) == null) {
+        self.has_error = true;
+        report.errorToken(self.peek(), "Expect '}' at the end of a block.");
+        return ParserError.InvalidBlockComposition;
+    }
+
     return statements;
 }
 
 fn expressionStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
     self.debugPrint("Seems like an expression statement...\n", .{});
     const expr = try self.expression(allocator);
-    _ = self.consume(.Semicolon, "Expect ';' after expression.");
+
+    if (self.consume(.Semicolon) == null) {
+        self.has_error = true;
+        report.errorToken(self.peek(), "Expect ';' after the expression.");
+        return ParserError.InvalidExpressionStatement;
+    }
+
     const stmt = try ast.createExprStmt(allocator, expr);
     return stmt;
 }
@@ -288,13 +384,14 @@ fn expressionStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
 fn expression(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
     if (self.assignment(allocator)) |expr| {
         if (self.debug_print) {
-            debug.print("Root expression done with ", .{});
+            self.debugPrint("Expression done with assignment. ", .{});
             expr.*.display(true);
         }
 
         return expr;
     } else |err| {
-        self.debugPrint("Root expression done with error {}\n", .{ err });
+        self.has_error = true;
+        self.debugPrint("Expression done with error {}.\n", .{ err });
         return err;
     }
 }
@@ -308,29 +405,31 @@ fn assignment(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
         const value = try self.assignment(allocator);
         switch (expr.*) {
             .variable => |variable| {
-                const assign_expr = ast.createAssignmentExpr(allocator, variable, value) catch |err| switch (err) {
-                    ast.AllocError.OutOfMemory => {
-                        return ParserError.OutOfMemory;
-                    },
-                };
+                const assign_expr = ast.createAssignmentExpr(allocator, variable, value) 
+                    catch |err| switch (err) {
+                        ast.AllocError.OutOfMemory => {
+                            return ParserError.OutOfMemory;
+                        },
+                    };
 
                 if (self.debug_print) {
-                    debug.print("Assignment done with ", .{});
+                    self.debugPrint("Assignment done with ", .{});
                     assign_expr.*.display(true);
                 }
                 
                 return assign_expr;
             },
             else => {
+                self.has_error = true;
                 return ParserError.InvalidAssignmentTarget;
             },
         }
 
         const equals: Token = self.previous().?;
-        reportError(equals, "Invalid assignment target.");
+        report.errorToken(equals, "Invalid assignment target.");
     }
 
-    self.debugPrint("Assignment done with non-assignment equality.\n", .{});
+    self.debugPrint("Assignment done with logical or.\n", .{});
     return expr;
 }
 
@@ -343,12 +442,12 @@ fn logicOr(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
         expr = try ast.createLogicalExpr(allocator, expr, optr, right);
 
         if (self.debug_print) {
-            debug.print("Logical done with 'or' condition. ", .{});
+            debug.print("Logical 'or' done with another 'and' condition. ", .{});
         }
     }
 
     if (self.debug_print) {
-        debug.print("Logical 'or' done. ", .{});
+        debug.print("Logical 'or' done ", .{});
         expr.*.display(true);
     }
 
@@ -364,7 +463,7 @@ fn logicAnd(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
         expr = try ast.createLogicalExpr(allocator, expr, optr, right);
 
         if (self.debug_print) {
-            debug.print("Logicial done with 'and' condition. ", .{});
+            debug.print("Logicial 'and' done with equality. ", .{});
         }
     }
 
@@ -378,6 +477,7 @@ fn logicAnd(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
 
 fn equality(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
     var expr = try self.comparision(allocator);
+
     const tokens_to_check = [_]TokenType{ .BangEqual, .EqualEqual };
     while (self.advanceIfMatchedAny(&tokens_to_check)) {
         // NOTE(yemon): `previous()` call here wouldn't panic, 
@@ -402,6 +502,7 @@ fn equality(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
 
 fn comparision(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
     var expr = try self.term(allocator);
+
     const tokens_to_check = [_]TokenType{ 
         .Greater, .GreaterEqual, .Less, .LessEqual 
     };
@@ -425,6 +526,7 @@ fn comparision(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
 
 fn term(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
     var expr = try self.factor(allocator);
+
     const tokens_to_check = [_]TokenType{ .Minus, .Plus };
     while (self.advanceIfMatchedAny(&tokens_to_check)) {
         const optr = self.previous().?;
@@ -446,6 +548,7 @@ fn term(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
 
 fn factor(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
     var expr = try self.unary(allocator);
+
     const tokens_to_check = [_]TokenType{ .Slash, .Star };
     while (self.advanceIfMatchedAny(&tokens_to_check)) {
         const optr = self.previous().?;
@@ -473,7 +576,7 @@ fn unary(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
         const expr = try ast.createUnaryExpr(allocator, optr, right);
 
         if (self.debug_print) {
-            debug.print("Unary done with unary prefix. ", .{});
+            debug.print("Unary done with proper unary prefix. ", .{});
             expr.*.display(true);
         }
         return expr;
@@ -523,18 +626,19 @@ fn finishCall(self: *Self, allocator: Allocator, callee: *ast.Expr) ParserError!
             if (arguments.items.len > 255) {
                 // NOTE(yemon): report error instead of throwing, since throwing will 
                 // kick into the panic mode and try to synchronize.
-                reportError(self.peek(), "Functions cannot have more than 255 arguments.");
+                report.errorToken(self.peek(), "Functions cannot have more than 255 arguments.");
             }
             arg = try self.expression(allocator);
             try arguments.append(arg);
         }
     }
+
     var paren: Token =  undefined;
-    const parser_result = self.consume(.RightParen, "Expect ')' after function arguments.");
-    if (parser_result.error_message == null) {
-        paren = parser_result.token;
+    if (self.consume(.RightParen)) |it| {
+        paren = it;
     } else {
-        // TODO(yemon): should probably assign something to `paren`
+        self.has_error = true;
+        report.errorToken(self.peek(), "Expect ')' after function arguments.");
     }
 
     return ast.createFunctionCall(allocator, callee, paren, arguments);
@@ -636,14 +740,14 @@ fn primary(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
 
         // NOTE(yemon): This just handles the error and report it in place.
         // Maybe it should unwind/return over the tree until the "statement boundary" is hit somehow...
-        const parser_result = self.consume(TokenType.RightParen, "Expecting \')\' after the expression.");
-        if (parser_result.error_message) |error_message| {
+        if (self.consume(.RightParen) == null) {
             self.has_error = true;
-            reportError(parser_result.token, error_message);
+            report.errorToken(current_token, "Expect ')' after the grouping expression.");
+            return ParserError.UnterminatedStatement;
         }
 
         if (self.debug_print) {
-            debug.print("Primary done with group. ", .{});
+            self.debugPrint("Primary done with group. ", .{});
             group.*.display(true);
         }
         return group;
@@ -654,7 +758,7 @@ fn primary(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
         const variable = try ast.createVariableExpr(allocator, current_token);
 
         if (self.debug_print) {
-            debug.print("Primary done with variable identifier. ", .{});
+            self.debugPrint("Primary done with variable identifier. ", .{});
             variable.*.display(true);
         }
         return variable;
@@ -662,38 +766,6 @@ fn primary(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
 
     self.debugPrint("Primary done with error on token: {s}.\n", .{ current_token.toString() });
     return error.UnknownPrimaryToken;
-}
-
-// NOTE(yemon): The easiest synchronization point is at the 'statement boundaries',
-// ie., between ';' and the start of next statement keywords.
-fn synchronize(self: *Self) ParserError!void {
-    _ = self.advance();
-    self.debugPrint("Syncing from token {}...\n", .{ self.peek().token_type });
-    while (!self.isEnd()) : (_ = self.advance()) {
-        if (self.previous()) |it| {
-            if (it.token_type == .Semicolon) {
-                self.debugPrint("Already passed the end of statement. Nothing to sync.\n", .{});
-                return;
-            } else {
-                return ParserError.InvalidSyncPosition;
-            }
-        } else {
-            return ParserError.InvalidSyncPosition;
-        }
-
-        switch (self.peek().token_type) {
-            .Class => return,
-            .Function => return,
-            .Var => return,
-            .If => return,
-            .For => return,
-            .While => return,
-            .Print => return,
-            .Return => return,
-            else => return ParserError.InvalidSyncToken,
-        }
-    }
-    self.debugPrint("Synced with statement boundary.\n", .{});
 }
 
 // -----------------------------------------------------------------------------
@@ -722,6 +794,15 @@ fn advanceIfMatchedAny(self: *Self, token_types: []const TokenType) bool {
     return false;
 }
 
+fn advance(self: *Self) ?Token {
+    if (!self.isEnd()) {
+        self.current += 1;
+        return self.tokens.*.items[self.current];
+    } else {
+        return null;
+    }
+}
+
 fn check(self: *const Self, token_type: TokenType) bool {
     if (self.isEnd()) {
         return false;
@@ -730,6 +811,7 @@ fn check(self: *const Self, token_type: TokenType) bool {
     }
 }
 
+// `peek()` returns the token that is being currently looked at.
 fn peek(self: *const Self) Token {
     return self.tokens.*.items[self.current];
 }
@@ -742,45 +824,46 @@ fn previous(self: *const Self) ?Token {
     }
 }
 
-fn advance(self: *Self) ?Token {
-    if (!self.isEnd()) {
-        self.current += 1;
-        return self.tokens.*.items[self.current];
-    } else {
-        return null;
+// NOTE(yemon): The easiest synchronization point is at the 'statement boundaries',
+// ie., between ';' and the start of next statement keywords.
+fn synchronize(self: *Self) ParserError!void {
+    self.debugPrint("Syncing from token {}...\n", .{ self.peek().token_type });
+    _ = self.advance();
+    while (!self.isEnd()) : (_ = self.advance()) {
+        const current_token = self.peek();
+        self.debugPrint("-> Token {s}\n", .{ current_token.toString() });
+        // NOTE(yemon): `previous()` shouldn't be null, since `advance()` was successful
+        const previous_token = self.previous().?;
+        if (previous_token.token_type == .Semicolon) {
+            self.debugPrint("Already passed the end of statement. Nothing to sync.\n", .{});
+            return;
+        }
+
+        switch (current_token.token_type) {
+            .Class => return,
+            .Function => return,
+            .Var => return,
+            .If => return,
+            .For => return,
+            .While => return,
+            .Print => return,
+            .Return => return,
+            else => continue,
+        }
     }
+    self.debugPrint("Successfully synced with statement boundary.\n", .{});
 }
 
-// TODO(yemon): The usage of the `ParserResult` feels a bit clunky now...
-fn consume(self: *Self, token_type: TokenType, error_message: []const u8) ParserResult {
+const MatchedToken = Token;
+
+fn consume(self: *Self, token_type: TokenType) ?MatchedToken {
     const current_token = self.peek();
     if (current_token.token_type == token_type) {
-        if (self.advance()) |next_token| {
-            self.debugPrint("Consumed '{s}', next token waiting is '{s}'\n", 
-                .{ current_token.toString(), next_token.toString() });
-            return .{
-                .token = current_token,
-                .error_message = null,
-            };
-        } else {
-            const buffer: []u8 = undefined;
-            const message = 
-                std.fmt.bufPrint(
-                    buffer, 
-                    "Unable to consume current token from {s}.", 
-                    .{ current_token.toString() }) 
-                catch "No space left even to compose an error message.";
-            return .{
-                .token = current_token,
-                .error_message = message,
-            };
-        }
+        self.debugPrint("Consume matching token '{s}'.\n", .{ current_token.toString() });
+        _ = self.advance();
+        return current_token;
     } else {
-        self.debugPrint("Unable to consume token type '{}', returning the current one instead '{s}'.\n", .{ token_type, current_token.toString() });
-        return .{
-            .token = current_token,
-            .error_message = error_message,
-        };
+        return null;
     }
 }
 
@@ -791,49 +874,11 @@ fn isEnd(self: *const Self) bool {
     return self.peek().token_type == .Eof;
 }
 
-const ParserResult = struct {
-    token: Token, 
-    error_message: ?[]const u8,
-};
+// -----------------------------------------------------------------------------
 
-// TODO(yemon): Might need a bit more permanent place for this
-fn report(line: u32, where_message: []const u8, error_message: []const u8) void {
-    debug.print("[{}] ERROR {s}: {s}\n", .{ line, where_message, error_message });
-}
-
-// TODO(yemon): Might need a bit more permanent place for this
-fn reportError(token: Token, message: []const u8) void {
-    if (token.token_type == .Eof) {
-        report(token.line, "at end", message);
-    } else {
-        if (token.lexeme) |lexeme| {
-            debug.print("[{}] ERROR on lexeme {s}: {s}\n", .{ 
-                token.line, lexeme, message 
-            });
-        } else {
-            report(token.line, "(Unidentified lexeme)", message);
-        }
-    }
-}
-
-// TODO(yemon): Reporting functions needs a bit of consolidations. Maybe grouped into its own module?
-// NOTE(yemon): Unused!
-fn reportPrint(allocator: Allocator, token: Token, index: u32, comptime message: []const u8, args: anytype) void {
-    const fmt_message = std.fmt.allocPrint(allocator, message, args) catch "";
-    debug.print("Error when parsing token {} at position index {}: {s}\n", .{
-        token, index, fmt_message,
-    });
-}
-
-fn debugPrint(self: *const Self, comptime fmt: []const u8, args: anytype) void {
+fn debugPrint(self: *const Self, comptime fmt_message: []const u8, args: anytype) void {
     if (!self.debug_print) {
         return;
     }
-    debug.print(fmt, args);
-}
-
-// TODO(yemon): error reporting really needs a proper structure
-fn errorPrint(self: *const Self, comptime fmt: []const u8, args: anytype) void {
-    _ = self;
-    debug.print(fmt, args);
+    debug.print(fmt_message, args);
 }
