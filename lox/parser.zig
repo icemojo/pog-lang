@@ -60,7 +60,7 @@ pub fn parse(self: *Self, allocator: Allocator) ParserError!std.ArrayList(*ast.S
     if (self.debug_ast) {
         debug.print("Final AST:\n", .{});
         for (statements.items) |stmt| {
-            debug.print("{s}\n", .{ stmt.*.toString(allocator) });
+            stmt.*.display(0);
         }
     }
 
@@ -68,13 +68,49 @@ pub fn parse(self: *Self, allocator: Allocator) ParserError!std.ArrayList(*ast.S
 }
 
 fn declaration(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
-    if (self.advanceIfMatched(.Function)) {
-        return try self.functionDeclareStmt(allocator, "function");
-    } else if (self.advanceIfMatched(.Var)) {
+    if (self.advanceIfMatched(.Var)) {
         return try self.variableDeclareStmt(allocator);
+    } else if (self.advanceIfMatched(.Function)) {
+        return try self.functionDeclareStmt(allocator, "function");
     } else {
         return try self.statement(allocator);
     }
+}
+
+fn variableDeclareStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
+    self.debugPrint("Seems like a variable declaration statement...\n", .{});
+    var parser_result = self.consume(.Identifier, "Expect a valid identifier declaration.");
+    if (parser_result.error_message) |error_message| {
+        self.has_error = true;
+        reportError(parser_result.token, error_message);
+        return ParserError.InvalidIdentifierDeclaration;
+    }
+
+    var var_stmt: *ast.Stmt = undefined;
+    const identifier: Token = parser_result.token;
+    self.debugPrint("Identifier name is '{s}'\n", .{ identifier.lexeme.? });
+    var initializer: ?*ast.Expr = null;
+    if (self.advanceIfMatched(.Equal)) {
+        initializer = try self.expression(allocator);
+    }
+    var_stmt = ast.createVariableStmt(allocator, identifier, initializer) catch |err| switch (err) {
+        ast.AllocError.OutOfMemory => {
+            return ParserError.OutOfMemory;
+        },
+    };
+
+    // TODO(yemon): this would cause REPL to report an error if the statement 
+    // being entered didn't get terminated with ';'
+    // Right now, the temporary solution is to add manually add ';' at the end of the
+    // tokenizer scanning chain. Hacky, don't like it at all!
+    parser_result = self.consume(.Semicolon, "Expect an EOL terminator ';' after an identifier declaration expression.");
+    if (parser_result.error_message) |error_message| {
+        self.has_error = true;
+        reportError(parser_result.token, error_message);
+        return ParserError.InvalidIdentifierDeclaration;
+    }
+
+    return var_stmt;
 }
 
 fn functionDeclareStmt(self: *Self, allocator: Allocator, comptime kind: []const u8) ParserError!*ast.Stmt {
@@ -89,6 +125,8 @@ fn functionDeclareStmt(self: *Self, allocator: Allocator, comptime kind: []const
         parser_result = self.consume(.Identifier, "Expect an identifier as a " ++ kind ++ " parameter.");
         if (parser_result.error_message == null) {
             try params.append(parser_result.token);
+        } else {
+            // TODO(yemon): Report the parameter parsing error in place?
         }
         _ = self.advanceIfMatched(.Comma);
     }
@@ -97,6 +135,8 @@ fn functionDeclareStmt(self: *Self, allocator: Allocator, comptime kind: []const
     _ = self.consume(.LeftBrace, "Expect '{' before the " ++ kind ++ " body.");
     const body = try self.blockStmts(allocator);
 
+    // TODO(yemon): the 'name' identification is wrong, the last argument name is
+    // being marked as the function name here...
     const stmt = try allocator.create(ast.Stmt);
     stmt.* = ast.Stmt{
         .func_stmt = ast.FunctionStmt{
@@ -132,42 +172,8 @@ fn statement(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
     }
 }
 
-fn variableDeclareStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
-    debugPrint(self, "Seems like a variable declaration statement...\n", .{});
-    var parser_result = self.consume(.Identifier, "Expect a valid identifier declaration.");
-    if (parser_result.error_message) |error_message| {
-        self.has_error = true;
-        reportError(parser_result.token, error_message);
-        return ParserError.InvalidIdentifierDeclaration;
-    }
-
-    var var_stmt: *ast.Stmt = undefined;
-    const identifier: Token = parser_result.token;
-    debugPrint(self, "Identifier name is '{s}'\n", .{ identifier.lexeme.? });
-    var initializer: ?*ast.Expr = null;
-    if (self.advanceIfMatched(.Equal)) {
-        initializer = try self.expression(allocator);
-    }
-    var_stmt = ast.createVariableStmt(allocator, identifier, initializer) catch |err| switch (err) {
-        ast.AllocError.OutOfMemory => {
-            return ParserError.OutOfMemory;
-        },
-    };
-
-    // TODO(yemon): this would cause REPL to report an error if the statement 
-    // being entered didn't get terminated with ';'
-    parser_result = self.consume(.Semicolon, "Expect an EOL terminator ';' after an identifier declaration expression.");
-    if (parser_result.error_message) |error_message| {
-        self.has_error = true;
-        reportError(parser_result.token, error_message);
-        return ParserError.InvalidIdentifierDeclaration;
-    }
-
-    return var_stmt;
-}
-
 fn printStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
-    debugPrint(self, "Seems like a print statement...\n", .{});
+    self.debugPrint("Seems like a print statement...\n", .{});
     const expr = try self.expression(allocator);
     _ = self.consume(.Semicolon, "Expect ';' after value.");
     const stmt = try ast.createPrintStmt(allocator, expr);
@@ -272,7 +278,7 @@ fn blockStmts(self: *Self, allocator: Allocator) ParserError!std.ArrayList(*ast.
 }
 
 fn expressionStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
-    debugPrint(self, "Seems like an expression statement...\n", .{});
+    self.debugPrint("Seems like an expression statement...\n", .{});
     const expr = try self.expression(allocator);
     _ = self.consume(.Semicolon, "Expect ';' after expression.");
     const stmt = try ast.createExprStmt(allocator, expr);
@@ -280,17 +286,21 @@ fn expressionStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
 }
 
 fn expression(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
-    if (self.assignment(allocator)) |it| {
-        debugPrint(self, "Root expression done with {s}\n", .{ it.toString(allocator) });
-        return it;
+    if (self.assignment(allocator)) |expr| {
+        if (self.debug_print) {
+            debug.print("Root expression done with ", .{});
+            expr.*.display(true);
+        }
+
+        return expr;
     } else |err| {
-        debugPrint(self, "Root expression done with error {}\n", .{ err });
+        self.debugPrint("Root expression done with error {}\n", .{ err });
         return err;
     }
 }
 
-// NOTE(yemon): assignment expression still get more complex, 
-// when the objects and field accessors come into play.
+// NOTE(yemon): assignment expression will get more complex, when the objects and 
+// field accessors come into play.
 fn assignment(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
     const expr = try self.logicOr(allocator);
 
@@ -303,7 +313,12 @@ fn assignment(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
                         return ParserError.OutOfMemory;
                     },
                 };
-                debugPrint(self, "Assignment done with {s}.\n", .{ assign_expr.*.toString(allocator) });
+
+                if (self.debug_print) {
+                    debug.print("Assignment done with ", .{});
+                    assign_expr.*.display(true);
+                }
+                
                 return assign_expr;
             },
             else => {
@@ -315,7 +330,7 @@ fn assignment(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
         reportError(equals, "Invalid assignment target.");
     }
 
-    debugPrint(self, "Assignment done with non-assignment equality.\n", .{});
+    self.debugPrint("Assignment done with non-assignment equality.\n", .{});
     return expr;
 }
 
@@ -326,10 +341,17 @@ fn logicOr(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
         const optr = self.previous().?;
         const right = try self.logicAnd(allocator);
         expr = try ast.createLogicalExpr(allocator, expr, optr, right);
-        self.debugPrint("Logical done with 'or' condition. {s}\n", .{ expr.toString(allocator) });
+
+        if (self.debug_print) {
+            debug.print("Logical done with 'or' condition. ", .{});
+        }
     }
 
-    self.debugPrint("Logical 'or' done. {s}\n", .{ expr.toString(allocator) });
+    if (self.debug_print) {
+        debug.print("Logical 'or' done. ", .{});
+        expr.*.display(true);
+    }
+
     return expr;
 }
 
@@ -340,10 +362,17 @@ fn logicAnd(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
         const optr = self.previous().?;
         const right = try self.equality(allocator);
         expr = try ast.createLogicalExpr(allocator, expr, optr, right);
-        self.debugPrint("Logical done with 'and' condition. {s}\n", .{ expr.toString(allocator) });
+
+        if (self.debug_print) {
+            debug.print("Logicial done with 'and' condition. ", .{});
+        }
     }
 
-    self.debugPrint("Logical 'and' done. {s}\n", .{ expr.toString(allocator) });
+    if (self.debug_print) {
+        debug.print("Logical 'and' done. ", .{});
+        expr.*.display(true);
+    }
+
     return expr;
 }
 
@@ -357,9 +386,17 @@ fn equality(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
         const optr = self.previous().?;
         const right = try self.comparision(allocator);
         expr = try ast.createBinaryExpr(allocator, expr, optr, right);
-        debugPrint(self, "Equality done with binary. {s}\n", .{ expr.toString(allocator) });
+
+        if (self.debug_print) {
+            debug.print("Equality done with binary. ", .{});
+        }
     } 
-    debugPrint(self, "Equality done. {s}\n", .{ expr.toString(allocator) });
+    
+    if (self.debug_print) {
+        debug.print("Equality done. ", .{});
+        expr.*.display(true);
+    }
+
     return expr;
 }
 
@@ -372,9 +409,17 @@ fn comparision(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
         const optr = self.previous().?;
         const right = try self.comparision(allocator);
         expr = try ast.createBinaryExpr(allocator, expr, optr, right);
-        debugPrint(self, "Comparison done with binary. {s}\n", .{ expr.toString(allocator) });
+        
+        if (self.debug_print) {
+            debug.print("Comparison done with binary. ", .{});
+        }
     }
-    debugPrint(self, "Comparision done. {s}\n", .{ expr.toString(allocator) });
+
+    if (self.debug_print) {
+        debug.print("Comparison done. ", .{});
+        expr.*.display(true);
+    }
+
     return expr;
 }
 
@@ -385,9 +430,17 @@ fn term(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
         const optr = self.previous().?;
         const right = try self.factor(allocator);
         expr = try ast.createBinaryExpr(allocator, expr, optr, right);
-        debugPrint(self, "Terminal done with binary. {s}\n", .{ expr.toString(allocator) });
+
+        if (self.debug_print) {
+            debug.print("Terminal done with binary. ", .{});
+        }
     } 
-    debugPrint(self, "Terminal done. {s}\n", .{ expr.toString(allocator) });
+
+    if (self.debug_print) {
+        debug.print("Terminal done. ", .{});
+        expr.*.display(true);
+    }
+
     return expr;
 }
 
@@ -398,9 +451,17 @@ fn factor(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
         const optr = self.previous().?;
         const right = try self.unary(allocator);
         expr = try ast.createBinaryExpr(allocator, expr, optr, right);
-        debugPrint(self, "Factor done with binary. {s}\n", .{ expr.toString(allocator) });
+
+        if (self.debug_print) {
+            debug.print("Factor done with binary. ", .{});
+        }
     } 
-    debugPrint(self, "Factor done. {s}\n", .{ expr.toString(allocator) });
+
+    if (self.debug_print) {
+        debug.print("Factor done. ", .{});
+        expr.*.display(true);
+    }
+
     return expr;
 }
 
@@ -410,11 +471,18 @@ fn unary(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
         const optr = self.previous().?;
         const right = try self.unary(allocator);
         const expr = try ast.createUnaryExpr(allocator, optr, right);
-        self.debugPrint("Unary done with unary prefix. {s}\n", .{ expr.toString(allocator) });
+
+        if (self.debug_print) {
+            debug.print("Unary done with unary prefix. ", .{});
+            expr.*.display(true);
+        }
         return expr;
     } else {
         const func = try self.funcCall(allocator);
-        self.debugPrint("Unary done with function call.\n", .{});
+
+        if (self.debug_print) {
+            debug.print("Unary done with function call.\n", .{});
+        }
         return func;
     }
 }
@@ -425,10 +493,22 @@ fn funcCall(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
     while (true) {
         if (self.advanceIfMatched(.LeftParen)) {
             expr = try self.finishCall(allocator, expr);
+
+            if (self.debug_print) {
+                debug.print("Function call done.\n", .{});
+            }
             return expr;
         } else {
+            if (self.debug_print) {
+                debug.print("Invalid function call. Probably a syntax error.\n", .{});
+            }
             break;
         }
+    }
+
+    if (self.debug_print) {
+        debug.print("Function call done with primary.\n", .{});
+        expr.*.display(true);
     }
     return expr;
 }
@@ -462,7 +542,7 @@ fn finishCall(self: *Self, allocator: Allocator, callee: *ast.Expr) ParserError!
 
 fn primary(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
     const current_token = self.peek();
-    debugPrint(self, "Primary... {s}\n", .{ current_token.toString() });
+    self.debugPrint("Primary... {s}\n", .{ current_token.toString() });
 
     if (self.check(TokenType.Number)) {
         _ = self.advance();
@@ -472,7 +552,11 @@ fn primary(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
         const int_lit = try ast.createLiteral(allocator, ast.LiteralExpr{
             .integer = int_value,
         });
-        debugPrint(self, "Primary done with int literal. {s}\n", .{ int_lit.toString(allocator) });
+
+        if (self.debug_print) {
+            debug.print("Primary done with int literal. ", .{});
+            int_lit.*.display(true);
+        }
         return int_lit;
     }
 
@@ -484,7 +568,11 @@ fn primary(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
         const double_lit = try ast.createLiteral(allocator, ast.LiteralExpr{
             .double = double_value,
         });
-        debugPrint(self, "Primary done with double literal. {s}\n", .{ double_lit.toString(allocator) });
+
+        if (self.debug_print) {
+            debug.print("Primary done with double literal. ", .{});
+            double_lit.*.display(true);
+        }
         return double_lit;
     }
 
@@ -492,7 +580,11 @@ fn primary(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
         _ = self.advance();
         if (current_token.literal) |literal| {
             const string_lit = try ast.createStringLiteral(allocator, literal);
-            debugPrint(self, "Primary done with string literal. {s}\n", .{ string_lit.toString(allocator) });
+
+            if (self.debug_print) {
+                debug.print("Primary done with string literal. ", .{});
+                string_lit.*.display(true);
+            }
             return string_lit;
         } else {
             return error.InvalidStringComposition;
@@ -504,7 +596,11 @@ fn primary(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
         const true_lit = try ast.createLiteral(allocator, ast.LiteralExpr{
             .boolean = true,
         });
-        debugPrint(self, "Primary done with true literal. {s}\n", .{ true_lit.toString(allocator) });
+
+        if (self.debug_print) {
+            debug.print("Primary done with true literal. ", .{});
+            true_lit.*.display(true);
+        }
         return true_lit;
     }
     if (self.check(TokenType.False)) {
@@ -512,7 +608,11 @@ fn primary(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
         const false_lit = try ast.createLiteral(allocator, ast.LiteralExpr{
             .boolean = false,
         });
-        debugPrint(self, "Primary done with false literal. {s}\n", .{ false_lit.toString(allocator) });
+
+        if (self.debug_print) {
+            debug.print("Primary done with false literal. ", .{});
+            false_lit.*.display(true);
+        }
         return false_lit;
     }
     if (self.check(TokenType.Nil)) {
@@ -520,7 +620,11 @@ fn primary(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
         const nil_lit = try ast.createLiteral(allocator, ast.LiteralExpr{
             .nil = true,
         });
-        debugPrint(self, "Primary done with nil literal. {s}\n", .{ nil_lit.toString(allocator) });
+
+        if (self.debug_print) {
+            debug.print("Primary done with nil literal. ", .{});
+            nil_lit.*.display(true);
+        }
         return nil_lit;
     }
 
@@ -538,18 +642,25 @@ fn primary(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
             reportError(parser_result.token, error_message);
         }
 
-        debugPrint(self, "Primary done with group. {s}\n", .{ group.toString(allocator) });
+        if (self.debug_print) {
+            debug.print("Primary done with group. ", .{});
+            group.*.display(true);
+        }
         return group;
     }
 
     if (self.check(TokenType.Identifier)) {
         _ = self.advance();
         const variable = try ast.createVariableExpr(allocator, current_token);
-        debugPrint(self, "Primary done with variable identifier. {s}\n", .{ variable.toString(allocator) });
+
+        if (self.debug_print) {
+            debug.print("Primary done with variable identifier. ", .{});
+            variable.*.display(true);
+        }
         return variable;
     }
 
-    debugPrint(self, "Primary done with error on token: {s}.\n", .{ current_token.toString() });
+    self.debugPrint("Primary done with error on token: {s}.\n", .{ current_token.toString() });
     return error.UnknownPrimaryToken;
 }
 
@@ -557,11 +668,11 @@ fn primary(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
 // ie., between ';' and the start of next statement keywords.
 fn synchronize(self: *Self) ParserError!void {
     _ = self.advance();
-    debugPrint(self, "Syncing from token {}...\n", .{ self.peek().token_type });
+    self.debugPrint("Syncing from token {}...\n", .{ self.peek().token_type });
     while (!self.isEnd()) : (_ = self.advance()) {
         if (self.previous()) |it| {
             if (it.token_type == .Semicolon) {
-                debugPrint(self, "Already passed the end of statement. Nothing to sync.\n", .{});
+                self.debugPrint("Already passed the end of statement. Nothing to sync.\n", .{});
                 return;
             } else {
                 return ParserError.InvalidSyncPosition;
@@ -582,7 +693,7 @@ fn synchronize(self: *Self) ParserError!void {
             else => return ParserError.InvalidSyncToken,
         }
     }
-    debugPrint(self, "Synced with statement boundary.\n", .{});
+    self.debugPrint("Synced with statement boundary.\n", .{});
 }
 
 // -----------------------------------------------------------------------------
@@ -640,11 +751,12 @@ fn advance(self: *Self) ?Token {
     }
 }
 
+// TODO(yemon): The usage of the `ParserResult` feels a bit clunky now...
 fn consume(self: *Self, token_type: TokenType, error_message: []const u8) ParserResult {
     const current_token = self.peek();
     if (current_token.token_type == token_type) {
         if (self.advance()) |next_token| {
-            debugPrint(self, "Consumed '{s}', next token waiting is '{s}'\n", 
+            self.debugPrint("Consumed '{s}', next token waiting is '{s}'\n", 
                 .{ current_token.toString(), next_token.toString() });
             return .{
                 .token = current_token,
@@ -664,7 +776,7 @@ fn consume(self: *Self, token_type: TokenType, error_message: []const u8) Parser
             };
         }
     } else {
-        debugPrint(self, "Unable to consume token type '{}', returning the current one instead '{s}'.\n", .{ token_type, current_token.toString() });
+        self.debugPrint("Unable to consume token type '{}', returning the current one instead '{s}'.\n", .{ token_type, current_token.toString() });
         return .{
             .token = current_token,
             .error_message = error_message,
