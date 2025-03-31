@@ -135,7 +135,7 @@ fn functionDeclareStmt(
     allocator: Allocator, 
     comptime kind: []const u8
 ) ParserError!*ast.Stmt {
-    self.debugPrint("Seems like a function declare block...\n", .{});
+    self.debugPrint("Seems like a " ++ kind ++ " declare block...\n", .{});
 
     var identifier: Token = undefined;
 
@@ -146,6 +146,8 @@ fn functionDeclareStmt(
         report.errorToken(self.peek(), "Expect " ++ kind ++ " name.");
         return ParserError.InvalidFunctionComposition;
     }
+
+    self.debugPrint("Identifier name is {s}.\n", .{ identifier.toString() });
 
     if (self.consume(.LeftParen) == null) {
         self.has_error = true;
@@ -171,13 +173,22 @@ fn functionDeclareStmt(
         return ParserError.InvalidFunctionComposition;
     }
 
+    self.debugPrint("Parsed {} parameters.\n", .{ params.items.len });
+    if (self.debug_print) {
+        for (params.items) |param| {
+            self.debugPrint(" -> {s}\n", .{ param.toString() });
+        }
+    }
+
     if (self.consume(.LeftBrace) == null) {
         self.has_error = true;
         report.errorToken(self.peek(), "Expect '{' after the " ++ kind ++ " body.");
         return ParserError.InvalidFunctionComposition;
     }
 
+    self.debugPrint("Parsing the function body...\n", .{});
     const body = try self.blockStmts(allocator);
+    self.debugPrint("Function body parsed.\n", .{});
 
     // TODO(yemon): the 'name' identification is wrong, the last argument name is
     // being marked as the function name here...
@@ -580,14 +591,14 @@ fn unary(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
             expr.*.display(true);
         }
         return expr;
-    } else {
-        const func = try self.funcCall(allocator);
-
-        if (self.debug_print) {
-            debug.print("Unary done with function call.\n", .{});
-        }
-        return func;
     }
+
+    const func = try self.funcCall(allocator);
+
+    if (self.debug_print) {
+        debug.print("Unary done with function call.\n", .{});
+    }
+    return func;
 }
 
 fn funcCall(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
@@ -595,16 +606,15 @@ fn funcCall(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
 
     while (true) {
         if (self.advanceIfMatched(.LeftParen)) {
+            // NOTE(yemon): Would the original `expr` be leaking, if there were
+            // multiple call chains and `expr` is replaced on each call iteration
             expr = try self.finishCall(allocator, expr);
 
             if (self.debug_print) {
-                debug.print("Function call done.\n", .{});
+                debug.print("Function call done on sub-expression:\n", .{});
+                expr.*.display(true);
             }
-            return expr;
         } else {
-            if (self.debug_print) {
-                debug.print("Invalid function call. Probably a syntax error.\n", .{});
-            }
             break;
         }
     }
@@ -617,11 +627,13 @@ fn funcCall(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
 }
 
 fn finishCall(self: *Self, allocator: Allocator, callee: *ast.Expr) ParserError!*ast.Expr {
+    self.debugPrint("Parsing the function arguments...\n", .{});
     var arguments = std.ArrayList(*ast.Expr).init(allocator);
 
     if (!self.check(.RightParen)) {
         var arg = try self.expression(allocator);
         try arguments.append(arg);
+        // NOTE(yemon): two identifier tokens NOT separated by 'comma' could be an issue
         while (self.advanceIfMatched(.Comma)) {
             if (arguments.items.len > 255) {
                 // NOTE(yemon): report error instead of throwing, since throwing will 
@@ -632,16 +644,19 @@ fn finishCall(self: *Self, allocator: Allocator, callee: *ast.Expr) ParserError!
             try arguments.append(arg);
         }
     }
+    self.debugPrint("Parsed {} arguments.\n", .{ arguments.items.len });
 
-    var paren: Token =  undefined;
+    // NOTE(yemon): Closing paren token is marked just for error reporting if needed
+    var closing_paren: Token =  undefined;
     if (self.consume(.RightParen)) |it| {
-        paren = it;
+        closing_paren = it;
     } else {
         self.has_error = true;
         report.errorToken(self.peek(), "Expect ')' after function arguments.");
     }
 
-    return ast.createFunctionCall(allocator, callee, paren, arguments);
+    self.debugPrint("Function call done.\n", .{});
+    return ast.createFunctionCallExpr(allocator, callee, closing_paren, arguments);
 }
 
 fn primary(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
