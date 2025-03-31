@@ -4,7 +4,7 @@ const log = @import("std").log;
 const Allocator = @import("std").mem.Allocator;
 
 const ast = @import("ast.zig");
-const LoxCallable = @import("lox_callable.zig").LoxCallable;
+const LoxFunction = @import("lox_callable.zig").LoxFunction;
 
 const ArithmeticOp = enum {
     substract,
@@ -274,6 +274,8 @@ const EvaluationError = error {
     InvalidStringOperand,
     InvalidValueTypeToNegate,
     StringConcatFailed,
+    InvalidVariableAccess,
+    InvalidFunctionCall,
     NotDoneYet,
 
     OutOfMemory,
@@ -288,6 +290,7 @@ const RuntimeError = error {
     UndefinedVariable,
     AlreadyDefinedVariable,
     AlreadyDefinedFunction,
+    UndefinedFunction,
     FunctionArityMismatch,
 };
 
@@ -320,7 +323,10 @@ fn initBuiltins(self: *Self, allocator: Allocator) !void {
     // try self.global_env.defineFunction("clock", clock_func);
 }
 
-pub fn executeAll(self: *Self, allocator: Allocator, statements: std.ArrayList(*ast.Stmt)) (EvaluationError || RuntimeError)!void {
+pub fn executeAll(
+    self: *Self, allocator: Allocator, 
+    statements: std.ArrayList(*ast.Stmt)
+) (EvaluationError || RuntimeError)!void {
     for (statements.items) |stmt| {
         try self.evaluateStatement(allocator, stmt);
         if (self.debug_env) {
@@ -329,15 +335,18 @@ pub fn executeAll(self: *Self, allocator: Allocator, statements: std.ArrayList(*
     }
 }
 
-fn evaluateStatement(self: *Self, allocator: Allocator, stmt: *const ast.Stmt) (EvaluationError || RuntimeError)!void {
+fn evaluateStatement(
+    self: *Self, allocator: Allocator, 
+    stmt: *const ast.Stmt
+) (EvaluationError || RuntimeError)!void {
     switch (stmt.*) {
         .variable => |variable| {
             self.debugPrint("Evaluating variable statement...\n", .{});
             if (variable.initializer) |initializer| {
                 const value = try self.evaluate(allocator, initializer);
-                try self.env.define(variable.name, value);
+                try self.env.*.define(variable.name, value);
             } else {
-                try self.env.define(variable.name, Value{ .nil = true });
+                try self.env.*.define(variable.name, Value{ .nil = true });
             }
         },
 
@@ -380,15 +389,25 @@ fn evaluateStatement(self: *Self, allocator: Allocator, stmt: *const ast.Stmt) (
             _ = try self.executeBlock(allocator, block.statements);
         },
 
-        .func_stmt => |func_stmt| {
-            const name = if (func_stmt.name.lexeme) |lexeme| lexeme else "(NA)";
-            self.debugPrint("Executing the function {s}...\n", .{ name });
-            _ = try self.executeBlock(allocator, func_stmt.body);
+        .func_declare_stmt => |func_declare_stmt| {
+            var name: []const u8 = undefined;
+            if (func_declare_stmt.name.lexeme) |lexeme| {
+                name = lexeme;
+            } else {
+                return RuntimeError.UndefinedFunction;
+            }
+            self.debugPrint("Evaluating the function declaration statement '{s}'...\n", .{ name });
+
+            const function = LoxFunction.init(&func_declare_stmt);
+            try self.env.*.defineFunction(name, function);
         },
     }
 }
 
-fn evaluate(self: *Self, allocator: Allocator, expr: *const ast.Expr) (EvaluationError || RuntimeError)!Value {
+fn evaluate(
+    self: *Self, allocator: Allocator, 
+    expr: *const ast.Expr
+) (EvaluationError || RuntimeError)!Value {
     switch (expr.*) {
         .assign => |assignment| {
             self.debugPrint("  Evaluating assignment expression...\n", .{});
@@ -423,35 +442,64 @@ fn evaluate(self: *Self, allocator: Allocator, expr: *const ast.Expr) (Evaluatio
         // Other info related to the error (like 'lexeme') cannot be passed back
         // to the caller.
         .variable => |variable| {
-            self.debugPrint("  Evaluating variable declaration expression...\n", .{});
+            self.debugPrint("  Evaluating variable expression...\n", .{});
             const name = variable.lexeme.?;
-            return self.env.*.getValue(name) catch |err| switch (err) {
+
+            const env_value = self.env.*.getValue(name) catch |err| switch (err) {
                 RuntimeError.UndefinedVariable => {
-                    log.err("Undefined variable '{s}'.", .{ name });
+                    log.err("Undefined identifier '{s}'.", .{ name });
                     return Value{ .nil = true };
                 },
                 else => {
-                    log.err("Unknown error when trying to access variable '{s}': {}", .{ name, err });
+                    log.err("Unknown error when trying to access variable '{s}': {}", .{ 
+                        name, err 
+                    });
                     return err;
                 },
             };
+
+            switch (env_value) {
+                .value => |value| {
+                    self.debugPrint("  Env Value: {s}\n", .{ value.toString(allocator) });
+                    return value;
+                },
+                else => {
+                    return EvaluationError.InvalidVariableAccess;
+                }
+            }
         },
 
         .func_call => |func_call| {
-            self.debugPrint("  Evaluating function call...\n", .{});
-            const return_value = try self.evaluateFunctionCallExpr(allocator, &func_call);
-            return return_value;
+            self.debugPrint("  Evaluating a function call expression... ", .{});
+            if (self.debug_print) {
+                func_call.display(false);
+                self.debugPrint("\n", .{});
+            }
+
+            self.debugPrint("  Function callee expr: ", .{});
+            if (self.debug_print) {
+                func_call.callee.*.display(true);
+            }
+
+            _ = try self.evaluateFunctionCallExpr(allocator, &func_call);
+            return Value{ .nil = true };
         },
     }
 }
 
-fn evaluateAssignmentExpr(self: *Self, allocator: Allocator, assignment: *const ast.AssignmentExpr) (EvaluationError || RuntimeError)!Value {
+fn evaluateAssignmentExpr(
+    self: *Self, allocator: Allocator, 
+    assignment: *const ast.AssignmentExpr
+) (EvaluationError || RuntimeError)!Value {
     const value = try evaluate(self, allocator, assignment.value);
     try self.env.assign(assignment.name, value);
     return value;
 }
 
-fn evaluateBinaryExpr(self: *Self, allocator: Allocator, binary: *const ast.BinaryExpr) (EvaluationError || RuntimeError)!Value {
+fn evaluateBinaryExpr(
+    self: *Self, allocator: Allocator, 
+    binary: *const ast.BinaryExpr
+) (EvaluationError || RuntimeError)!Value {
     const left_value = try evaluate(self, allocator, binary.left);
     const right_value = try evaluate(self, allocator, binary.right);
 
@@ -549,7 +597,10 @@ fn evaluateBinaryExpr(self: *Self, allocator: Allocator, binary: *const ast.Bina
     }
 }
 
-fn evaluateLogicalExpr(self: *Self, allocator: Allocator, logical: *const ast.LogicalExpr) (EvaluationError || RuntimeError)!Value {
+fn evaluateLogicalExpr(
+    self: *Self, allocator: Allocator, 
+    logical: *const ast.LogicalExpr
+) (EvaluationError || RuntimeError)!Value {
     const left = try self.evaluate(allocator, logical.left);
 
     if (logical.optr.token_type == .Or) {
@@ -565,7 +616,10 @@ fn evaluateLogicalExpr(self: *Self, allocator: Allocator, logical: *const ast.Lo
     return try self.evaluate(allocator, logical.right);
 }
 
-fn evaluateUnaryExpr(self: *Self, allocator: Allocator, unary: *const ast.UnaryExpr) (EvaluationError || RuntimeError)!Value {
+fn evaluateUnaryExpr(
+    self: *Self, allocator: Allocator, 
+    unary: *const ast.UnaryExpr
+) (EvaluationError || RuntimeError)!Value {
     const value = try evaluate(self, allocator, unary.right);
 
     switch (unary.optr.token_type) {
@@ -606,48 +660,78 @@ fn evaluateUnaryExpr(self: *Self, allocator: Allocator, unary: *const ast.UnaryE
     }
 }
 
-// NOTE(yemon): 1) free functions can be called
-//              2) 'class definitions' can be called to construct a new instance
-//              3) class 'member functions' can be called in scope of its instance
-fn evaluateFunctionCallExpr(self: *Self, allocator: Allocator, func_call: *const ast.FunctionCall) (EvaluationError || RuntimeError)!Value {
-    // NOTE(yemon): the most viable evaluation route should probably be the 
-    // '.variable' which would in turn result an 'identifier'
-    const callee: Value = try self.evaluate(allocator, func_call.callee);
-    _ = callee;
+// NOTE(yemon): 
+//   1) free functions can be called
+//   2) class 'member functions' can be called in scope of its instance
+//   3) 'class definitions' can be called to construct a new instance
+fn evaluateFunctionCallExpr(
+    self: *Self, allocator: Allocator, 
+    func_call: *const ast.FunctionCallExpr,
+) (EvaluationError || RuntimeError)!void {
+    switch (func_call.callee.*) {
+        .variable => |variable| {
+            const name = variable.lexeme orelse unreachable;
+            const env_value = self.env.*.getValue(name) catch |err| switch (err) {
+                RuntimeError.UndefinedFunction => {
+                    log.err("Undefined function '{s}'", .{ name });
+                    return;     // 'nil' on error?
+                },
+                else => {
+                    return err;
+                }
+            };
 
+            switch (env_value) {
+                .function => |lox_function| {
+                    const evaluated_args = try self.evaluateFunctionArguments(
+                        allocator, func_call
+                    );
+                    const args_count = if (evaluated_args) |args| 
+                        @as(usize, args.items.len) else 0;
+                    if (lox_function.arity() != args_count) {
+                        return RuntimeError.FunctionArityMismatch;
+                    }
+
+                    self.debugPrint("  Triggering LoxFunction call() with {} arguments.\n", .{
+                        if (evaluated_args) |args| args.items.len else 0
+                    });
+                    _ = lox_function.call(allocator, self, evaluated_args);
+                },
+                else => {
+                    return EvaluationError.InvalidFunctionCall;
+                }
+            }
+        },
+
+        else => {
+            return EvaluationError.InvalidFunctionCall;
+        }
+    }
+}
+
+fn evaluateFunctionArguments(
+    self: *Self, allocator: Allocator, 
+    func_call: *const ast.FunctionCallExpr
+) (EvaluationError || RuntimeError)!?std.ArrayList(Value) {
+    self.debugPrint("  Evaluating function arguments...\n", .{});
     var evaluated_args = std.ArrayList(Value).init(allocator);
     if (func_call.arguments) |args| {
         for (args.items) |arg| {
-            const arg_value = try self.evaluate(allocator, arg);
-            try evaluated_args.append(arg_value);
+            const arg_value: Value = try self.evaluate(allocator, arg);
+            self.debugPrint("  -> {s}\n", .{ arg_value.toString(allocator) });
+            evaluated_args.append(arg_value) catch unreachable;
         }
+    } else {
+        return null;
     }
 
-    // TODO(yemon): make sure that the `callee` "implements" the `LoxCallable`,
-    // or at least resolved to an identifier, so that it won't crash 
-    // on something like `"Hello"()`
-    const name = "user_call";        // TODO(yemon): get from the caller 'identifier' somehow
-    const lox_func = LoxCallable(Value, Value).init(name, executeFunction, evaluated_args);
-
-    if (evaluated_args.items.len != lox_func.arity()) {
-        debug.print("[ERR] Expected {} arguments, but received {}.\n", .{ 
-            lox_func.arity(), evaluated_args.items.len 
-        });
-        return RuntimeError.FunctionArityMismatch;
-    }
-
-    const func_return: ?Value = lox_func.call(allocator);
-    return if (func_return) |ret_value| ret_value else Value{ .nil = true };
+    return evaluated_args;
 }
 
-fn executeFunction(allocator: Allocator, args: ?std.ArrayList(Value)) ?Value {
-    _ = allocator;
-    _ = args;
-    debug.print("Will do something!\n", .{});
-    return null;
-}
-
-fn executeBlock(self: *Self, allocator: Allocator, statements: std.ArrayList(*ast.Stmt)) !void {
+fn executeBlock(
+    self: *Self, allocator: Allocator, 
+    statements: std.ArrayList(*ast.Stmt)
+) !void {
     const parent_env = self.env;
     const block_env = Environment.init(allocator, self.env);
     defer allocator.destroy(block_env);
@@ -657,35 +741,65 @@ fn executeBlock(self: *Self, allocator: Allocator, statements: std.ArrayList(*as
     self.env = parent_env;
 }
 
-// TODO(yemon): Might want to combine the variable and function namespaces together,
-// since it's kinda rare in languages for both of them to live in two different ones
-// (e.g., Common Lisp). If the function needs to be a "first-class citizen", then they 
-// both have to exist in the same namespace.
-const Environment = struct {
-    enclosing: ?*Environment,
-    values: std.StringHashMap(Value),
-    functions: std.ArrayList(LoxCallable(Value, Value)),
+pub fn executeBlockEnv(
+    self: *Self, allocator: Allocator, 
+    statements: std.ArrayList(*ast.Stmt), 
+    with_env: *Environment
+) !void {
+    const parent_env = self.env;
 
-    fn init(allocator: Allocator, enclosing: ?*Environment) *Environment {
+    self.env = with_env;
+    try self.executeAll(allocator, statements);
+    self.env = parent_env;
+}
+
+pub const EnvValue = union(enum) {
+    value: Value,
+    function: LoxFunction,
+
+    fn toString(self: EnvValue, allocator: Allocator) []const u8 {
+        switch (self) {
+            .value => |value| {
+                return value.toString(allocator);
+            },
+            .function => |function| {
+                return function.toString(allocator);
+            },
+        }
+    }
+};
+
+// It's kinda rare in for language to have both the variables and function declarations
+// to NOT live in the same namespace. (e.g., Common Lisp). 
+// If the functions need to be "first-class citizens", they both have to exist 
+// in the same namespace.
+pub const Environment = struct {
+    enclosing: ?*Environment,
+    values: std.StringHashMap(EnvValue),
+
+    pub fn init(allocator: Allocator, enclosing: ?*Environment) *Environment {
         const env = allocator.create(Environment) catch unreachable;
         env.*.enclosing = enclosing;
-        env.*.values = std.StringHashMap(Value).init(allocator);
-        env.*.functions = std.ArrayList(LoxCallable(Value, Value)).init(allocator);
+        env.*.values = std.StringHashMap(EnvValue).init(allocator);
         return env;
     }
 
-    fn define(self: *Environment, name: []const u8, value: Value) !void {
+    pub fn define(self: *Environment, name: []const u8, value: Value) !void {
         if (self.alreadyDefined(name)) {
             return RuntimeError.AlreadyDefinedVariable;
         }
-        try self.values.put(name, value);
+        try self.values.put(name, EnvValue{
+            .value = value,
+        });
     }
 
-    fn defineFunction(self: *Environment, name: []const u8, callable: LoxCallable(Value, Value)) !void {
-        if (self.alreadyDefinedFunction(name)) {
+    fn defineFunction(self: *Environment, name: []const u8, function: LoxFunction) !void {
+        if (self.alreadyDefined(name)) {
             return RuntimeError.AlreadyDefinedFunction;
         }
-        try self.functions.append(callable);
+        try self.values.put(name, EnvValue{
+            .function = function,
+        });
     }
 
     fn assign(self: *Environment, name: []const u8, value: Value) !void {
@@ -697,10 +811,12 @@ const Environment = struct {
                 return RuntimeError.UndefinedVariable;
             }
         }
-        try self.values.put(name, value);
+        try self.values.put(name, EnvValue{ 
+            .value = value,
+        });
     }
 
-    fn getValue(self: *const Environment, name: []const u8) RuntimeError!Value {
+    fn getValue(self: *const Environment, name: []const u8) RuntimeError!EnvValue {
         if (self.values.get(name)) |value| {
             return value;
         } else {
@@ -719,13 +835,6 @@ const Environment = struct {
         } else {
             return false;
         }
-    }
-
-    fn alreadyDefinedFunction(self: *const Environment, name: []const u8) bool {
-        for (self.functions.items) |func| {
-            return std.mem.eql(u8, func.name, name);
-        }
-        return false;
     }
 
     fn display(self: *const Environment, allocator: Allocator) void {

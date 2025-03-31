@@ -125,8 +125,7 @@ fn run(allocator: Allocator, interpreter: *Interpreter, source: []const u8, opti
     }
 
     interpreter.*.executeAll(allocator, statements) catch |err| {
-        debug.print("Runtime error occured:\n", .{});
-        debug.print("{}\n", .{ err });
+        debug.print("Runtime error occured: {}\n", .{ err });
         return;
     };
 }

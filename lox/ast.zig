@@ -16,7 +16,7 @@ pub const Expr = union(enum) {
     grouping: GroupingExpr,
     literal: LiteralExpr,
     variable: VariableExpr,
-    func_call: FunctionCall,
+    func_call: FunctionCallExpr,
 
     pub fn display(self: Expr, line_break: bool) void { 
         switch (self) {
@@ -268,12 +268,12 @@ pub fn createVariableExpr(allocator: Allocator, name: Token) !*Expr {
     return expr;
 }
 
-pub const FunctionCall = struct {
+pub const FunctionCallExpr = struct {
     callee: *Expr,
-    paren: Token,       // why is this only a single Token??
+    closing_paren: Token,
     arguments: ?std.ArrayList(*Expr),
 
-    fn display(self: *const FunctionCall, line_break: bool) void {
+    pub fn display(self: *const FunctionCallExpr, line_break: bool) void {
         self.callee.*.display(line_break);
         debug.print("(", .{});
 
@@ -290,12 +290,17 @@ pub const FunctionCall = struct {
     }
 };
 
-pub fn createFunctionCall(allocator: Allocator, callee: *Expr, paren: Token, arguments: ?std.ArrayList(*Expr)) !*Expr {
+pub fn createFunctionCallExpr(
+    allocator: Allocator, 
+    callee: *Expr, 
+    closing_paren: Token, 
+    arguments: ?std.ArrayList(*Expr)
+) !*Expr {
     const expr = try allocator.create(Expr);
     expr.* = Expr{
-        .func_call = FunctionCall{
+        .func_call = FunctionCallExpr{
             .callee = callee,
-            .paren = paren,
+            .closing_paren = closing_paren,
             .arguments = arguments,
         },
     };
@@ -319,7 +324,7 @@ pub const Stmt = union(enum) {
     if_stmt: IfStmt,
     while_stmt: WhileStmt,
     block: Block,
-    func_stmt: FunctionStmt,
+    func_declare_stmt: FunctionDeclareStmt,
 
     pub fn display(self: Stmt, indents: u32) void {
         printIndents(indents);
@@ -342,8 +347,8 @@ pub const Stmt = union(enum) {
             .block => |block| {
                 block.display(indents);
             },
-            .func_stmt => |func_stmt| {
-                func_stmt.display(indents);
+            .func_declare_stmt => |func_declare_stmt| {
+                func_declare_stmt.display(indents);
             },
         }
     }
@@ -498,12 +503,12 @@ pub const Block = struct {
     }
 };
 
-pub const FunctionStmt = struct {
+pub const FunctionDeclareStmt = struct {
     name: Token,
     params: ?std.ArrayList(Token),
     body: std.ArrayList(*Stmt),
 
-    pub fn display(self: *const FunctionStmt, indents: u32) void {
+    pub fn display(self: *const FunctionDeclareStmt, indents: u32) void {
         assert(self.name.lexeme != null);
         const name = self.name.lexeme.?;
 

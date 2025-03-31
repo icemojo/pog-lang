@@ -194,7 +194,7 @@ fn functionDeclareStmt(
     // being marked as the function name here...
     const stmt = try allocator.create(ast.Stmt);
     stmt.* = ast.Stmt{
-        .func_stmt = ast.FunctionStmt{
+        .func_declare_stmt = ast.FunctionDeclareStmt{
             .name = identifier,
             .params = if (params.items.len > 0) params else null,
             .body = body,

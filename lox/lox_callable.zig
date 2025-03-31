@@ -1,31 +1,58 @@
 const std = @import("std");
+const fmt = @import("std").fmt;
 const debug = @import("std").debug;
 const Allocator = @import("std").mem.Allocator;
 
-pub fn LoxCallable(comptime ArgumentType: type, comptime ReturnType: type) type {
-    return struct {
-        const Self = @This();
+const ast = @import("ast.zig");
+const Interpreter = @import("interpreter.zig");
+const Environment = @import("interpreter.zig").Environment;
+const Value = @import("interpreter.zig").Value;
 
-        name: []const u8,
-        func: CallableFunc, 
-        args: ?std.ArrayList(ArgumentType),
+pub const LoxFunction = struct {
+    const Self = @This();
+    
+    declaration: *const ast.FunctionDeclareStmt,
 
-        const CallableFunc = *const fn (allocator: Allocator, args: ?std.ArrayList(ArgumentType)) ?ReturnType;
+    pub fn init(func_declare_stmt: *const ast.FunctionDeclareStmt) Self {
+        return .{
+            .declaration = func_declare_stmt,
+        };
+    }
 
-        pub fn init(name: []const u8, func: CallableFunc, args: ?std.ArrayList(ArgumentType)) Self {
-            return Self{
-                .name = name,
-                .func = func,
-                .args = args,
-            };
+    pub fn arity(self: *const Self) usize {
+        return if (self.declaration.params) |params| params.items.len else 0;
+    }
+
+    pub fn call(
+        self: *const LoxFunction, allocator: Allocator,
+        interpreter: *Interpreter, 
+        func_args: ?std.ArrayList(Value)
+    ) ?void {
+        const func_env = Environment.init(allocator, interpreter.global_env);
+        defer allocator.destroy(func_env);
+
+        if (self.declaration.params != null and func_args != null) {
+            const params = self.declaration.params.?;
+            const args = func_args.?;
+
+            for (params.items, 0..) |param, i| {
+                const arg = args.items[i];
+                if (param.lexeme) |name| {
+                    func_env.*.define(name, arg) catch continue;
+                }
+            }
         }
 
-        pub fn arity(self: *const Self) usize {
-            return if (self.args) |args| args.items.len else 0;
-        }
+        interpreter.executeBlockEnv(
+            allocator, 
+            self.declaration.*.body, 
+            func_env
+        ) catch unreachable;
+    }
 
-        pub fn call(self: *const Self, allocator: Allocator) ?ReturnType {
-            return self.func(allocator, self.args);
-        }
-    };
-}
+    pub fn toString(self: LoxFunction, allocator: Allocator) []const u8 {
+        const name = if (self.declaration.name.lexeme) |lexeme| lexeme else "NA";
+        const str = fmt.allocPrint(allocator, "<fun {s}>", .{ name }) catch "-";
+        return str;
+    }
+};
