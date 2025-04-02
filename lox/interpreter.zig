@@ -275,6 +275,7 @@ const EvaluationError = error {
     InvalidValueTypeToNegate,
     StringConcatFailed,
     InvalidVariableAccess,
+    InvalidFunctionDeclaration,
     InvalidFunctionCall,
     NotDoneYet,
 
@@ -287,10 +288,9 @@ const RuntimeError = error {
     InvalidUnaryOperand,
     InvalidBinaryOperands,
     UninitializedVariable,
-    UndefinedVariable,
+    UndefinedIdentifier,
     AlreadyDefinedVariable,
     AlreadyDefinedFunction,
-    UndefinedFunction,
     FunctionArityMismatch,
 };
 
@@ -394,7 +394,7 @@ fn evaluateStatement(
             if (func_declare_stmt.name.lexeme) |lexeme| {
                 name = lexeme;
             } else {
-                return RuntimeError.UndefinedFunction;
+                return EvaluationError.InvalidFunctionDeclaration;
             }
             self.debugPrint("Evaluating the function declaration statement '{s}'...\n", .{ name });
 
@@ -446,8 +446,8 @@ fn evaluate(
             const name = variable.lexeme.?;
 
             const env_value = self.env.*.getValue(name) catch |err| switch (err) {
-                RuntimeError.UndefinedVariable => {
-                    log.err("Undefined identifier '{s}'.", .{ name });
+                RuntimeError.UndefinedIdentifier => {
+                    log.err("Undefined variable '{s}'.", .{ name });
                     return Value{ .nil = true };
                 },
                 else => {
@@ -492,7 +492,7 @@ fn evaluateAssignmentExpr(
     assignment: *const ast.AssignmentExpr
 ) (EvaluationError || RuntimeError)!Value {
     const value = try evaluate(self, allocator, assignment.value);
-    try self.env.assign(assignment.name, value);
+    try self.env.*.assign(assignment.name, value);
     return value;
 }
 
@@ -672,7 +672,7 @@ fn evaluateFunctionCallExpr(
         .variable => |variable| {
             const name = variable.lexeme orelse unreachable;
             const env_value = self.env.*.getValue(name) catch |err| switch (err) {
-                RuntimeError.UndefinedFunction => {
+                RuntimeError.UndefinedIdentifier => {
                     log.err("Undefined function '{s}'", .{ name });
                     return;     // 'nil' on error?
                 },
@@ -808,7 +808,7 @@ pub const Environment = struct {
                 return try enclosing.*.assign(name, value);
             } else {
                 // NOTE(yemon): Already at the top most (global) scope
-                return RuntimeError.UndefinedVariable;
+                return RuntimeError.UndefinedIdentifier;
             }
         }
         try self.values.put(name, EnvValue{ 
@@ -824,7 +824,7 @@ pub const Environment = struct {
                 return it.*.getValue(name);
             } else {
                 // NOTE(yemon): Already at the top most (global) scope
-                return RuntimeError.UndefinedVariable;
+                return RuntimeError.UndefinedIdentifier;
             }
         }
     }
