@@ -325,6 +325,7 @@ pub const Stmt = union(enum) {
     while_stmt: WhileStmt,
     block: Block,
     func_declare_stmt: FunctionDeclareStmt,
+    return_stmt: ReturnStmt,
 
     pub fn display(self: Stmt, indents: u32) void {
         printIndents(indents);
@@ -349,6 +350,9 @@ pub const Stmt = union(enum) {
             },
             .func_declare_stmt => |func_declare_stmt| {
                 func_declare_stmt.display(indents);
+            },
+            .return_stmt => |return_stmt| {
+                return_stmt.display();
             },
         }
     }
@@ -528,6 +532,20 @@ pub const FunctionDeclareStmt = struct {
             stmt.*.display(indents+1);
         }
         debug.print("}}\n", .{});
+    }
+};
+
+pub const ReturnStmt = struct {
+    keyword: Token,
+    expr: ?*Expr,
+
+    fn display(self: *const ReturnStmt) void {
+        debug.print("return", .{});
+        if (self.expr) |expr| {
+            debug.print(" ", .{});
+            expr.*.display(false);
+        }
+        debug.print(";\n", .{});
     }
 };
 

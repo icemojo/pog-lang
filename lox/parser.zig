@@ -212,6 +212,8 @@ fn statement(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
         return try self.whileStmt(allocator);
     } else if (self.advanceIfMatched(.For)) {
         return try self.forStmt(allocator);
+    } else if (self.advanceIfMatched(.Return)) {
+        return try self.returnStmt(allocator);
     } else if (self.advanceIfMatched(.LeftBrace)) {
         var block = ast.Block.init(allocator);
         const statements = try self.blockStmts(allocator);
@@ -359,6 +361,39 @@ fn forStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
     } else {
         return for_loop;
     }
+}
+
+fn returnStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
+    self.debugPrint("Seems like a return statement...\n", .{});
+
+    var keyword: Token = undefined;
+    if (self.previous()) |it| {
+        keyword = it;
+    } else {
+        self.has_error = true;
+        report.errorToken(self.peek(), "Seems like a poorly composed return statement.");
+        return ParserError.InvalidFunctionComposition;
+    }
+
+    var expr: ?*ast.Expr = null;
+    if (!self.check(.Semicolon)) {
+        expr = try self.expression(allocator);
+    }
+
+    if (self.consume(.Semicolon) == null) {
+        self.has_error = true;
+        report.errorToken(self.peek(), "Expect ';' after the return statement.");
+        return ParserError.InvalidFunctionComposition;
+    }
+
+    const stmt = try allocator.create(ast.Stmt);
+    stmt.* = ast.Stmt{
+        .return_stmt = ast.ReturnStmt{
+            .keyword = keyword,
+            .expr = expr,
+        },
+    };
+    return stmt;
 }
 
 // NOTE(yemon): This is not returning `*ast.Stmt` on purpose.
