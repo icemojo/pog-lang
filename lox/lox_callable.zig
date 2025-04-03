@@ -7,6 +7,8 @@ const ast = @import("ast.zig");
 const Interpreter = @import("interpreter.zig");
 const Environment = @import("interpreter.zig").Environment;
 const Value = @import("interpreter.zig").Value;
+// const ControlFlowError = @import("interpreter.zig").ControlFlowError;
+const ControlFlow = @import("interpreter.zig").ControlFlow;
 
 pub const LoxFunction = struct {
     const Self = @This();
@@ -27,7 +29,7 @@ pub const LoxFunction = struct {
         self: *const LoxFunction, allocator: Allocator,
         interpreter: *Interpreter, 
         func_args: ?std.ArrayList(Value)
-    ) ?void {
+    ) ?ControlFlow { //} Value {
         const func_env = Environment.init(allocator, interpreter.global_env);
         defer allocator.destroy(func_env);
 
@@ -43,11 +45,35 @@ pub const LoxFunction = struct {
             }
         }
 
-        interpreter.executeBlockEnv(
+        debug.print("LoxFunction.call():\n", .{});
+        const control_flow: ?ControlFlow = interpreter.executeBlockEnv(
             allocator, 
             self.declaration.*.body, 
             func_env
-        ) catch unreachable;
+        ) catch null;
+        debug.print("LoxFunction.call() done ", .{});
+        if (control_flow) |flow| {
+            debug.print("WITH control flow result: {s}", .{ flow.return_value.toString(allocator) });
+        } else {
+            debug.print("WITHOUT any control flow result.\n", .{});
+        }
+
+        return control_flow;
+
+        // if (control_flow) |flow| {
+        //     return flow.return_value;
+        // } else {
+        //     return Value{ .nil = true };
+        // }
+
+        //     ControlFlowError.FunctionReturned => {
+        //         // TODO(yemon): how am I actually gonna grab the returned 'value' 
+        //         // through error??
+        //     },
+        //     else => {
+        //         return err;
+        //     },
+        // };
     }
 
     pub fn toString(self: LoxFunction, allocator: Allocator) []const u8 {

@@ -300,6 +300,7 @@ debug_print: bool,
 debug_env: bool,
 global_env: *Environment,
 env: *Environment,
+depth: i32,
 
 pub fn init(allocator: Allocator) Self {
     const global_env = Environment.init(allocator, null);
@@ -308,6 +309,7 @@ pub fn init(allocator: Allocator) Self {
         .debug_env = false,
         .global_env = global_env,
         .env = global_env,
+        .depth = -1,
     };
     interpreter.initBuiltins(allocator) catch unreachable;
     return interpreter;
@@ -326,19 +328,70 @@ fn initBuiltins(self: *Self, allocator: Allocator) !void {
 pub fn executeAll(
     self: *Self, allocator: Allocator, 
     statements: std.ArrayList(*ast.Stmt)
-) (EvaluationError || RuntimeError)!void {
-    for (statements.items) |stmt| {
-        try self.evaluateStatement(allocator, stmt);
+) (EvaluationError || RuntimeError)!?ControlFlow {
+    var control_flow: ?ControlFlow = null;
+    // for (statements.items) |stmt| {
+    var i: usize = 0;
+    while (i < statements.items.len) : (i += 1)  {
+        const stmt = statements.items[i];
+
+        control_flow = null;
+        // const control_flow: ?ControlFlow = try self.evaluateStatement(allocator, stmt);
+        control_flow = try self.evaluateStatement(allocator, stmt);
         if (self.debug_env) {
             self.env.*.display(allocator);
         }
+
+        if (control_flow != null) {
+            // self.debugPrint("<<< Statement done with function RETURN {s}\n", .{ 
+                // flow.return_value.toString(allocator),
+            // });
+            break; // :block_scope;
+        } else {
+            // self.debugPrint("<<< Control should NOT break.\n", .{});
+            // self.debugPrint("<<< Statement has NO RETURN.\n", .{});
+            continue; //:block_scope;
+        }
     }
+    if (control_flow) |flow| {
+        self.debugPrint("<<< executeAll()  : done WITH return value {s}\n", .{ 
+            flow.return_value.toString(allocator) 
+        });
+    } else {
+        self.debugPrint("<<< executeAll()  : done WITHOUT control flow.\n", .{});
+    }
+
+    return control_flow;
 }
+
+pub const ControlFlow = struct {
+    return_value: Value,
+};
+
+// const ReturnType = enum {
+//     Block,
+//     Function,
+// };
+
+const ReturnValue = Value; // struct {
+//     type: ReturnType,
+//     value: Value,
+// };
 
 fn evaluateStatement(
     self: *Self, allocator: Allocator, 
     stmt: *const ast.Stmt
-) (EvaluationError || RuntimeError)!void {
+) (EvaluationError || RuntimeError)!?ControlFlow {
+    self.debugPrint("Current env inner return (bef stmt eval): ", .{});
+    if (self.env.*.inner_return) |ret_value| {
+        debug.print("{s}\n", .{ ret_value.toString(allocator) });
+        // return ControlFlow{
+        //     .return_value = ret_value,
+        // };
+    } else {
+        debug.print("NONE\n", .{});
+    }
+
     switch (stmt.*) {
         .variable => |variable| {
             self.debugPrint("Evaluating variable statement...\n", .{});
@@ -348,45 +401,61 @@ fn evaluateStatement(
             } else {
                 try self.env.*.define(variable.name, Value{ .nil = true });
             }
+            return null;
         },
 
         .print => |print| {
             self.debugPrint("Evaluating print statement...\n", .{});
             const value = try self.evaluate(allocator, print.expr);
             debug.print("{s}\n", .{ value.toString(allocator) });
+            return null;
         },
         .expr => |expr| {
             self.debugPrint("Evaluating expression...\n", .{});
             _ = try self.evaluate(allocator, expr.expr);
+            return null;
         },
 
         .if_stmt => |if_stmt| {
             self.debugPrint("Evaluating if statement...\n", .{});
             const condition = try self.evaluate(allocator, if_stmt.condition);
             if (condition.isTruthy()) {
-                self.debugPrint("TRUE... \n", .{});
-                try self.evaluateStatement(allocator, if_stmt.then_branch);
+                self.debugPrint("  TRUE... \n", .{});
+                _ = try self.evaluateStatement(allocator, if_stmt.then_branch);
             } else {
-                self.debugPrint("FALSE... ", .{});
+                self.debugPrint("  FALSE... \n", .{});
                 if (if_stmt.else_branch) |else_branch| {
-                    self.debugPrint("else branch...\n", .{});
-                    try self.evaluateStatement(allocator, else_branch);
+                    self.debugPrint("  else branch...\n", .{});
+                    _ = try self.evaluateStatement(allocator, else_branch);
                 }
             }
+            return null;
         },
 
         .while_stmt => |while_stmt| {
             self.debugPrint("Evaluating while statement block...\n", .{});
             var condition = try self.evaluate(allocator, while_stmt.condition);
             while (condition.isTruthy()) {
-                try self.evaluateStatement(allocator, while_stmt.body);
+                _ = try self.evaluateStatement(allocator, while_stmt.body);
                 condition = try self.evaluate(allocator, while_stmt.condition);
             }
+            return null;
         },
 
         .block => |block| {
             self.debugPrint("Evaluating a block...\n", .{});
-            _ = try self.executeBlock(allocator, block.statements);
+            // const return_value = try self.executeBlock(allocator, block.statements);
+            // return return_value;
+            // const control_flow = try self.executeBlock(allocator, block.statements);
+            // return control_flow;
+            const control_flow = try self.executeBlock(allocator, block.statements);
+            if (control_flow) |flow| {
+                self.debugPrint("Block evaluation done WITH control flow {s}\n", .{ flow.return_value.toString(allocator) });
+            } else {
+                self.debugPrint("Block evaluation done WITHOUT any control flow\n", .{});
+            }
+
+            return control_flow;
         },
 
         .func_declare_stmt => |func_declare_stmt| {
@@ -400,6 +469,21 @@ fn evaluateStatement(
 
             const function = LoxFunction.init(&func_declare_stmt);
             try self.env.*.defineFunction(name, function);
+            return null;
+        },
+
+        .return_stmt => |return_stmt| {
+            self.debugPrint("Evaluating a return statement...\n", .{});
+            if (return_stmt.expr) |expr| {
+                const value: Value = try self.evaluate(allocator, expr);
+                return ControlFlow{
+                    .return_value = value,
+                };
+            } else {
+                return ControlFlow{
+                    .return_value = Value{ .nil = true},
+                };
+            }
         },
     }
 }
@@ -470,7 +554,7 @@ fn evaluate(
         },
 
         .func_call => |func_call| {
-            self.debugPrint("  Evaluating a function call expression... ", .{});
+            self.debugPrint("  Evaluating a function call expression :: ", .{});
             if (self.debug_print) {
                 func_call.display(false);
                 self.debugPrint("\n", .{});
@@ -481,8 +565,20 @@ fn evaluate(
                 func_call.callee.*.display(true);
             }
 
-            _ = try self.evaluateFunctionCallExpr(allocator, &func_call);
-            return Value{ .nil = true };
+            const control_flow = try self.evaluateFunctionCallExpr(allocator, &func_call);
+            self.debugPrint("Function call expression done :: ", .{});
+            if (control_flow) |flow| {
+                if (self.debug_print) {
+                    func_call.display(false);
+                    self.debugPrint("WITH control flow {s}\n", .{ 
+                        flow.return_value.toString(allocator) 
+                    });
+                }
+                return flow.return_value;
+            } else {
+                self.debugPrint("WITHOUT control flow.\n", .{});
+                return Value{ .nil = true };
+            }
         },
     }
 }
@@ -667,14 +763,14 @@ fn evaluateUnaryExpr(
 fn evaluateFunctionCallExpr(
     self: *Self, allocator: Allocator, 
     func_call: *const ast.FunctionCallExpr,
-) (EvaluationError || RuntimeError)!void {
+) (EvaluationError || RuntimeError)!?ControlFlow {
     switch (func_call.callee.*) {
         .variable => |variable| {
             const name = variable.lexeme orelse unreachable;
             const env_value = self.env.*.getValue(name) catch |err| switch (err) {
                 RuntimeError.UndefinedIdentifier => {
                     log.err("Undefined function '{s}'", .{ name });
-                    return;     // 'nil' on error?
+                    return null;
                 },
                 else => {
                     return err;
@@ -688,6 +784,9 @@ fn evaluateFunctionCallExpr(
                     );
                     const args_count = if (evaluated_args) |args| 
                         @as(usize, args.items.len) else 0;
+                    self.debugPrint("  Function arity: {}, args_count: {}\n", .{ 
+                        lox_function.arity(), args_count 
+                    });
                     if (lox_function.arity() != args_count) {
                         return RuntimeError.FunctionArityMismatch;
                     }
@@ -695,7 +794,12 @@ fn evaluateFunctionCallExpr(
                     self.debugPrint("  Triggering LoxFunction call() with {} arguments.\n", .{
                         if (evaluated_args) |args| args.items.len else 0
                     });
-                    _ = lox_function.call(allocator, self, evaluated_args);
+                    const control_flow = lox_function.call(allocator, self, evaluated_args);
+                    self.debugPrint("  LoxFunction call() result: \n", .{});
+                    if (control_flow) |flow| {
+                        self.debugPrint("{s}", .{ flow.return_value.toString(allocator) });
+                    }
+                    return control_flow;
                 },
                 else => {
                     return EvaluationError.InvalidFunctionCall;
@@ -728,29 +832,91 @@ fn evaluateFunctionArguments(
     return evaluated_args;
 }
 
-fn executeBlock(
+pub fn executeBlock(
     self: *Self, allocator: Allocator, 
     statements: std.ArrayList(*ast.Stmt)
-) !void {
+) !?ControlFlow {
+    self.depth += 1;
+    if (self.env.*.inner_return) |inner_return| {
+        self.debugPrint(">>> Inner block returned a value: {s}. Need to early break!\n", .{ inner_return.toString(allocator) });
+        return ControlFlow{
+            .return_value = inner_return,
+        };
+    } else {
+        self.debugPrint(">>> Inner block returned NOTHING!\n", .{});
+    }
+
     const parent_env = self.env;
     const block_env = Environment.init(allocator, self.env);
     defer allocator.destroy(block_env);
 
+    self.debugPrint(">>> executeBlock():\n", .{});
     self.env = block_env;
-    try self.executeAll(allocator, statements);
+    // const control_flow = try self.executeAll(allocator, statements);
+    const control_flow: ?ControlFlow = control: for (statements.items) |stmt| {
+        const flow = try self.evaluateStatement(allocator, stmt);
+
+        if (flow) |it| {
+            self.debugPrint(">>> Need to break out WITH {s}.\n", .{ it.return_value.toString(allocator) });
+            break :control flow;
+        } else {
+            continue :control;
+        }
+    } else null;
     self.env = parent_env;
+
+    if (control_flow) |flow| {
+        self.debugPrint(">>> executeBlock(): done WITH {s}\n", .{ flow.return_value.toString(allocator) });
+        self.env.*.inner_return = flow.return_value;
+    } else {
+        self.debugPrint(">>> executeBlock(): done WITHOUT control flow result.\n", .{});
+    }
+
+    self.depth -= 1;
+    return control_flow;
 }
 
 pub fn executeBlockEnv(
     self: *Self, allocator: Allocator, 
     statements: std.ArrayList(*ast.Stmt), 
     with_env: *Environment
-) !void {
+) !?ControlFlow {
+    self.depth += 1;
+    if (self.env.*.inner_return) |inner_return| {
+        self.debugPrint(">>> Inner block returned a value: {s}. Need to early break!\n", .{ inner_return.toString(allocator) });
+        return ControlFlow{
+            .return_value = inner_return,
+        };
+    } else {
+        self.debugPrint(">>> Inner block returned NOTHING!\n", .{});
+    }
+
     const parent_env = self.env;
 
+    self.debugPrint(">>> executeBlockEnv():\n", .{});
     self.env = with_env;
-    try self.executeAll(allocator, statements);
+    // const control_flow = try self.executeAll(allocator, statements);
+    const control_flow: ?ControlFlow = control: for (statements.items) |stmt| {
+        const flow = try self.evaluateStatement(allocator, stmt);
+
+        if (flow) |it| {
+            self.debugPrint(">>> Need to break out WITH {s}.\n", .{ it.return_value.toString(allocator) });
+            break :control flow;
+        } else {
+            continue :control;
+        }
+    } else null;
     self.env = parent_env;
+    
+    if (control_flow) |flow| {
+        self.debugPrint(">>> executeBlockEnv(): done WITH {s}\n", .{ flow.return_value.toString(allocator) });
+        self.env.*.inner_return = flow.return_value;
+    } else {
+        self.debugPrint(">>> executeBlockEnv(): done WITHOUT control flow result.\n", .{});
+    }
+
+    self.depth -= 1;
+    return control_flow;
 }
 
 pub const EnvValue = union(enum) {
@@ -775,11 +941,13 @@ pub const EnvValue = union(enum) {
 // in the same namespace.
 pub const Environment = struct {
     enclosing: ?*Environment,
+    inner_return: ?Value,
     values: std.StringHashMap(EnvValue),
 
     pub fn init(allocator: Allocator, enclosing: ?*Environment) *Environment {
         const env = allocator.create(Environment) catch unreachable;
         env.*.enclosing = enclosing;
+        env.*.inner_return = null;
         env.*.values = std.StringHashMap(EnvValue).init(allocator);
         return env;
     }
@@ -859,5 +1027,6 @@ fn debugPrint(self: *const Self, comptime fmt: []const u8, args: anytype) void {
     if (!self.debug_print) {
         return;
     }
+    debug.print("[DEPTH {}]   ", .{ self.depth });
     debug.print(fmt, args);
 }
