@@ -839,9 +839,9 @@ pub fn executeBlock(
     self.depth += 1;
     if (self.env.*.inner_return) |inner_return| {
         self.debugPrint(">>> Inner block returned a value: {s}. Need to early break!\n", .{ inner_return.toString(allocator) });
-        return ControlFlow{
-            .return_value = inner_return,
-        };
+        // return ControlFlow{
+        //     .return_value = inner_return,
+        // };
     } else {
         self.debugPrint(">>> Inner block returned NOTHING!\n", .{});
     }
@@ -884,9 +884,9 @@ pub fn executeBlockEnv(
     self.depth += 1;
     if (self.env.*.inner_return) |inner_return| {
         self.debugPrint(">>> Inner block returned a value: {s}. Need to early break!\n", .{ inner_return.toString(allocator) });
-        return ControlFlow{
-            .return_value = inner_return,
-        };
+        // return ControlFlow{
+        //     .return_value = inner_return,
+        // };
     } else {
         self.debugPrint(">>> Inner block returned NOTHING!\n", .{});
     }
