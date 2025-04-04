@@ -3,6 +3,7 @@ const debug = @import("std").debug;
 const Allocator = @import("std").mem.Allocator;
 
 const opt = @import("options.zig");
+const Chunk = @import("chunk.zig");
 
 pub fn main() void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -22,4 +23,19 @@ pub fn main() void {
     if (options.verbose) {
         debug.print("(Verbose mode -v turned on.)\n", .{});
     }
+
+    var chunk = Chunk.init(allocator);
+    defer chunk.deinit();
+
+    chunk.writeCode(.op_return);
+
+    var pos = chunk.addConstant(12);
+    chunk.writeCode(.op_constant);
+    chunk.write(pos);
+
+    pos = chunk.addConstant(2048);
+    chunk.writeCode(.op_constant);
+    chunk.write(pos);
+
+    chunk.disassemble("Test chunk");
 }
