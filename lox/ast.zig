@@ -1,10 +1,69 @@
 const std       = @import("std");
+const fmt       = @import("std").fmt;
 const debug     = @import("std").debug;
+const assert    = @import("std").debug.assert;
 const eql       = @import("std").mem.eql;
 const Allocator = @import("std").mem.Allocator;
 
 const Token = @import("lexer.zig").Token;
 const Value = @import("interpreter.zig").Value;
+
+pub const Expr = union(enum) {
+    assign: AssignmentExpr,
+    binary: BinaryExpr,
+    logical: LogicalExpr,
+    unary: UnaryExpr,
+    grouping: GroupingExpr,
+    literal: LiteralExpr,
+    variable: VariableExpr,
+    func_call: FunctionCallExpr,
+
+    pub fn display(self: Expr, line_break: bool) void { 
+        switch (self) {
+            .assign => |assignment| {
+                assignment.display(line_break);
+            },
+            .binary => |binary| {
+                binary.display();
+            },
+            .logical => |logical| {
+                logical.display();
+            },
+            .unary => |unary| {
+                unary.display(line_break);
+            },
+            .grouping => |grouping| {
+                grouping.display(line_break);
+            },
+            .literal => |literal| {
+                literal.display();
+            },
+            .variable => |variable| {
+                if (variable.lexeme) |lexeme| {
+                    debug.print("{s}", .{ lexeme });
+                } else {
+                    debug.print("-", .{});
+                }
+            },
+            .func_call => |func_call| {
+                func_call.display(line_break);
+            },
+        }
+        if (line_break) {
+            debug.print("\n", .{});
+        }
+    }
+};
+
+pub const AssignmentExpr = struct {
+    name: []u8,
+    value: *Expr,
+
+    fn display(self: *const AssignmentExpr, line_break: bool) void {
+        debug.print("{s} = ", .{ self.name });
+        self.value.*.display(line_break);
+    }
+};
 
 pub fn createAssignmentExpr(allocator: Allocator, variable: Token, value: *Expr) AllocError!*Expr {
     if (variable.lexeme) |lexeme| {
@@ -24,6 +83,20 @@ pub fn createAssignmentExpr(allocator: Allocator, variable: Token, value: *Expr)
     }
 }
 
+pub const BinaryExpr = struct {
+    left:  *Expr,
+    optr:  Token,
+    right: *Expr,
+
+    fn display(self: *const BinaryExpr) void {
+        debug.print("({s} ", .{ self.optr.toString() });
+        self.left.*.display(false);
+        debug.print(" ", .{});
+        self.right.*.display(false);
+        debug.print(")", .{});
+    }
+};
+
 pub fn createBinaryExpr(allocator: Allocator, left: *Expr, optr: Token, right: *Expr) !*Expr {
     const expr = try allocator.create(Expr);
     expr.* = Expr{
@@ -36,6 +109,45 @@ pub fn createBinaryExpr(allocator: Allocator, left: *Expr, optr: Token, right: *
     return expr;
 }
 
+pub const LogicalExpr = struct {
+    left: *Expr,
+    optr: Token,
+    right: *Expr,
+
+    fn display(self: *const LogicalExpr) void {
+        debug.print("({s} ", .{ self.optr.toString() });
+        self.left.*.display(false);
+        debug.print(" ", .{});
+        self.right.*.display(false);
+        debug.print(")", .{});
+    }
+};
+
+pub fn createLogicalExpr(allocator: Allocator, left: *Expr, optr: Token, right: *Expr) !*Expr {
+    const expr = try allocator.create(Expr);
+    expr.* = Expr{
+        .logical = LogicalExpr{
+            .left = left,
+            .optr = optr,
+            .right = right,
+        },
+    };
+    return expr;
+}
+
+pub const UnaryExpr = struct {
+    optr:  Token,
+    right: *Expr,
+
+    fn display(self: *const UnaryExpr, line_break: bool) void {
+        debug.print("(", .{});
+        self.optr.display();
+        debug.print(" ", .{});
+        self.right.*.display(line_break);
+        debug.print(")", .{});
+    }
+};
+
 pub fn createUnaryExpr(allocator: Allocator, optr: Token, right: *Expr) !*Expr {
     const expr = try allocator.create(Expr);
     expr.* = Expr{
@@ -47,6 +159,14 @@ pub fn createUnaryExpr(allocator: Allocator, optr: Token, right: *Expr) !*Expr {
     return expr;
 }
 
+pub const GroupingExpr = struct {
+    inner: *Expr,
+
+    fn display(self: *const GroupingExpr, line_break: bool) void {
+        self.inner.display(line_break);
+    }
+};
+
 pub fn createGroupingExpr(allocator: Allocator, inner: *Expr) !*Expr {
     const expr = try allocator.create(Expr);
     expr.* = Expr{
@@ -56,149 +176,6 @@ pub fn createGroupingExpr(allocator: Allocator, inner: *Expr) !*Expr {
     };
     return expr;
 }
-
-pub fn createLiteral(allocator: Allocator, value: LiteralExpr) !*Expr {
-    const expr = try allocator.create(Expr);
-    expr.* = Expr{
-        .literal = value,
-    };
-    return expr;
-}
-
-pub fn createStringLiteral(allocator: Allocator, string_value: []const u8) !*Expr {
-    // NOTE(yemon): Double leakage here then the other 'create' functions...
-    const target_value = try allocator.alloc(u8, string_value.len);
-    @memcpy(target_value, string_value);
-
-    const expr = try allocator.create(Expr);
-    expr.* = Expr{
-        .literal = LiteralExpr{
-            .text = target_value,
-        },
-    };
-    return expr;
-}
-
-pub fn createVariableExpr(allocator: Allocator, name: Token) !*Expr {
-    // NOTE(yemon): Could the `name` Token's lexeme and literal could cause problems
-    // in terms of their lifetimes here. If you think about it, the heap allocated `expr`
-    // here can potentially outlive the `source` string, of which the tokens were created.
-    const expr = try allocator.create(Expr);
-    expr.* = Expr{
-        .variable = name,
-    };
-    return expr;
-}
-
-const VariableExpr = Token;
-
-pub const Expr = union(enum) {
-    assign: AssignmentExpr,
-    binary: BinaryExpr,
-    unary: UnaryExpr,
-    grouping: GroupingExpr,
-    literal: LiteralExpr,
-    variable: VariableExpr,
-
-    pub fn display(self: Expr, allocator: Allocator, line_break: bool) void { 
-        switch (self) {
-            .assign => |assignment| {
-                debug.print("{s}", .{ assignment.toString(allocator) });
-            },
-            .binary => |binary| {
-                debug.print("{s}", .{ binary.toString(allocator) });
-            },
-            .unary => |unary| {
-                debug.print("{s}", .{ unary.toString(allocator) });
-            },
-            .grouping => |grouping| {
-                debug.print("{s}", .{ grouping.toString(allocator) });
-            },
-            .literal => |literal| {
-                debug.print("{s}", .{ literal.toString(allocator) });
-            },
-        }
-        if (line_break) {
-            debug.print("\n", .{});
-        }
-    }
-
-    pub fn toString(self: Expr, allocator: Allocator) []const u8 {
-        switch (self) {
-            .assign => |assignment| {
-                return assignment.toString(allocator);
-            },
-            .binary => |binary| {
-                return binary.toString(allocator);
-            },
-            .unary => |unary| {
-                return unary.toString(allocator);
-            },
-            .grouping => |grouping| {
-                return grouping.toString(allocator);
-            },
-            .literal => |literal| {
-                return literal.toString(allocator);
-            },
-            .variable => |variable| {
-                return variable.toString();
-            },
-        }
-    }
-};
-
-pub const AssignmentExpr = struct {
-    name: []u8,
-    value: *Expr,
-
-    fn toString(self: *const AssignmentExpr, allocator: Allocator) []const u8 {
-        const str = std.fmt.allocPrint(allocator, "({s}={s})", .{
-            self.name, self.value.*.toString(allocator),
-        }) catch "(NA)";
-        return str;
-    }
-};
-
-pub const BinaryExpr = struct {
-    left:  *Expr,
-    optr:  Token,
-    right: *Expr,
-
-    fn toString(self: *const BinaryExpr, allocator: Allocator) []const u8 {
-        const optr_string = self.optr.toString();
-        const str = std.fmt.allocPrint(allocator, "({s} {s} {s})", .{
-            optr_string,
-            self.left.toString(allocator),
-            self.right.toString(allocator),
-        }) catch "(NA)";
-        return str;
-    }
-};
-
-pub const UnaryExpr = struct {
-    optr:  Token,
-    right: *Expr,
-
-    fn toString(self: *const UnaryExpr, allocator: Allocator) []const u8 {
-        const optr_string = self.optr.toString();
-        const str = std.fmt.allocPrint(allocator, "({s} {s})", .{ 
-            optr_string, 
-            self.right.toString(allocator),
-        }) catch "(NA)";
-        return str;
-    }
-};
-
-pub const GroupingExpr = struct {
-    inner: *Expr,
-
-    fn toString(self: *const GroupingExpr, allocator: Allocator) []const u8 {
-        const str = std.fmt.allocPrint(allocator, "{s}", .{
-            self.inner.toString(allocator),
-        }) catch "(NA)";
-        return str;
-    }
-};
 
 pub const LiteralExpr = union(enum) {
     integer: i64,
@@ -235,57 +212,148 @@ pub const LiteralExpr = union(enum) {
         }
     }
 
-    fn toString(self: LiteralExpr, allocator: Allocator) []const u8 {
-        var str: []const u8 = undefined;
+    fn display(self: LiteralExpr) void {
         switch (self) {
             .integer => |value| {
-                str = std.fmt.allocPrint(allocator, "{any}", .{ value }) 
-                    catch "NA";
+                debug.print("{any}", .{ value });
             },
-
             .double => |value| {
-                str = std.fmt.allocPrint(allocator, "{d}", .{ value }) 
-                    catch "NA";
+                debug.print("{d}", .{ value });
             },
-
             .text => |value| {
-                str = std.fmt.allocPrint(allocator, "\"{s}\"", .{ value }) 
-                    catch "NA";
+                debug.print("\"{s}\"", .{ value });
             },
-
             .boolean => |value| {
-                str = std.fmt.allocPrint(allocator, "{any}", .{ value }) 
-                    catch "NA";
+                debug.print("{any}", .{ value });
             },
-
             .nil => {
-                str = "nil";
-            }
+                debug.print("nil", .{});
+            },
         }
-        return str;
     }
 };
+
+pub fn createLiteral(allocator: Allocator, value: LiteralExpr) !*Expr {
+    const expr = try allocator.create(Expr);
+    expr.* = Expr{
+        .literal = value,
+    };
+    return expr;
+}
+
+pub fn createStringLiteral(allocator: Allocator, string_value: []const u8) !*Expr {
+    // TODO(yemon): Double leakage here then the other 'create' functions...
+    const target_value = try allocator.alloc(u8, string_value.len);
+    @memcpy(target_value, string_value);
+
+    const expr = try allocator.create(Expr);
+    expr.* = Expr{
+        .literal = LiteralExpr{
+            .text = target_value,
+        },
+    };
+    return expr;
+}
+
+const VariableExpr = Token;
+
+pub fn createVariableExpr(allocator: Allocator, name: Token) !*Expr {
+    // NOTE(yemon): Could the `name` Token's lexeme and literal could cause problems
+    // in terms of their lifetimes here. If you think about it, the heap allocated `expr`
+    // here can potentially outlive the `source` string, of which the tokens were created.
+    const expr = try allocator.create(Expr);
+    expr.* = Expr{
+        .variable = name,
+    };
+    return expr;
+}
+
+pub const FunctionCallExpr = struct {
+    callee: *Expr,
+    closing_paren: Token,
+    arguments: ?std.ArrayList(*Expr),
+
+    pub fn display(self: *const FunctionCallExpr, line_break: bool) void {
+        self.callee.*.display(line_break);
+        debug.print("(", .{});
+
+        if (self.arguments) |args| {
+            if (args.items.len > 0) {
+                for (args.items) |arg| {
+                    arg.*.display(false);
+                    debug.print(", ", .{});
+                }
+            }
+        }
+
+        debug.print(")", .{});
+    }
+};
+
+pub fn createFunctionCallExpr(
+    allocator: Allocator, 
+    callee: *Expr, 
+    closing_paren: Token, 
+    arguments: ?std.ArrayList(*Expr)
+) !*Expr {
+    const expr = try allocator.create(Expr);
+    expr.* = Expr{
+        .func_call = FunctionCallExpr{
+            .callee = callee,
+            .closing_paren = closing_paren,
+            .arguments = arguments,
+        },
+    };
+    return expr;
+}
+
+pub fn printIndents(indents: u32) void {
+    if (indents == 0) {
+        return;
+    }
+    var count: u32 = 0;
+    while (count <= indents) : (count += 1) {
+        debug.print("    ", .{});
+    }
+}
 
 pub const Stmt = union(enum) {
     variable: VariableStmt,
     print: PrintStmt,
     expr: ExprStmt,
+    if_stmt: IfStmt,
+    while_stmt: WhileStmt,
     block: Block,
+    func_declare_stmt: FunctionDeclareStmt,
+    return_stmt: ReturnStmt,
 
-    pub fn toString(self: Stmt, allocator: Allocator) []const u8 {
+    pub fn display(self: Stmt, indents: u32) void {
+        printIndents(indents);
         switch (self) {
             .variable => |variable| {
-                return variable.toString(allocator);
+                variable.display();
             },
             .print => |print| {
-                return print.toString(allocator);
+                print.display();
             },
             .expr => |expr| {
-                return expr.toString(allocator);
+                expr.display();
             },
-            .block => |_| {
-                return "{...}";
-            }
+            .if_stmt => |if_stmt| {
+                if_stmt.display(indents);
+            },
+            .while_stmt => |while_stmt| {
+                while_stmt.display(indents);
+            },
+            .block => |block| {
+                block.display(indents);
+            },
+            .func_declare_stmt => |func_declare_stmt| {
+                func_declare_stmt.display(indents);
+            },
+            .return_stmt => |return_stmt| {
+                return_stmt.display();
+            },
         }
     }
 };
@@ -294,14 +362,13 @@ pub const VariableStmt = struct {
     name: []u8,
     initializer: ?*Expr,
 
-    fn toString(self: *const VariableStmt, allocator: Allocator) []const u8 {
+    fn display(self: *const VariableStmt) void {
+        debug.print("var {s}", .{ self.name });
         if (self.initializer) |initializer| {
-            const str = std.fmt.allocPrint(allocator, "var {s} = {s};", .{ self.name, initializer.*.toString(allocator) }) catch "-";
-            return str;
-        } else {
-            const str = std.fmt.allocPrint(allocator, "var {s};", .{ self.name }) catch "-";
-            return str;
+            debug.print(" = ", .{});
+            initializer.*.display(false);
         }
+        debug.print(";\n", .{});
     }
 };
 
@@ -330,11 +397,10 @@ pub fn createVariableStmt(allocator: Allocator, identifier: Token, initializer: 
 pub const PrintStmt = struct {
     expr: *Expr,
 
-    fn toString(self: *const PrintStmt, allocator: Allocator) []const u8 {
-        const str = std.fmt.allocPrint(allocator, "print {s};\n", .{ 
-            self.expr.*.toString(allocator) 
-        }) catch "print -";
-        return str;
+    fn display(self: *const PrintStmt) void {
+        debug.print("print ", .{});
+        self.expr.*.display(false);
+        debug.print(";\n", .{});
     }
 };
 
@@ -351,11 +417,9 @@ pub fn createPrintStmt(allocator: Allocator, expr: *Expr) !*Stmt {
 pub const ExprStmt = struct {
     expr: *Expr,
 
-    fn toString(self: *const ExprStmt, allocator: Allocator) []const u8 {
-        const str = std.fmt.allocPrint(allocator, "{s};\n", .{ 
-            self.expr.*.toString(allocator) 
-        }) catch "-";
-        return str;
+    fn display(self: *const ExprStmt) void {
+        self.expr.*.display(false);
+        debug.print("\n", .{});
     }
 };
 
@@ -369,6 +433,61 @@ pub fn createExprStmt(allocator: Allocator, expr: *Expr) !*Stmt {
     return stmt;
 }
 
+pub const IfStmt = struct {
+    condition: *Expr,
+    then_branch: *Stmt,
+    else_branch: ?*Stmt,
+
+    fn display(self: *const IfStmt, indents: u32) void {
+        debug.print("if (", .{});
+        self.condition.*.display(false);
+        debug.print(")\n", .{});
+
+        self.then_branch.*.display(indents+1);
+
+        if (self.else_branch) |else_branch| {
+            printIndents(indents);
+            debug.print("else\n", .{});
+            else_branch.display(indents+1);
+        }
+    }
+};
+
+pub fn createIfStmt(allocator: Allocator, condition: *Expr, then_branch: *Stmt, else_branch: ?*Stmt) !*Stmt {
+    const stmt = try allocator.create(Stmt);
+    stmt.* = Stmt{
+        .if_stmt = IfStmt{
+            .condition = condition,
+            .then_branch = then_branch,
+            .else_branch = else_branch,
+        },
+    };
+    return stmt;
+}
+
+pub const WhileStmt = struct {
+    condition: *Expr,
+    body: *Stmt,
+
+    fn display(self: *const WhileStmt, indents: u32) void {
+        debug.print("while (", .{});
+        self.condition.*.display(false);
+        debug.print(")\n", .{});
+        self.body.*.display(indents+1);
+    }
+};
+
+pub fn createWhileStmt(allocator: Allocator, condition: *Expr, body: *Stmt) !*Stmt {
+    const stmt = try allocator.create(Stmt);
+    stmt.* = Stmt{
+        .while_stmt = WhileStmt{
+            .condition = condition,
+            .body = body,
+        },
+    };
+    return stmt;
+}
+
 pub const Block = struct {
     statements: std.ArrayList(*Stmt),
 
@@ -376,6 +495,57 @@ pub const Block = struct {
         return .{
             .statements = std.ArrayList(*Stmt).init(allocator),
         };
+    }
+
+    pub fn display(self: *const Block, indents: u32) void {
+        debug.print("{{\n", .{});
+        for (self.statements.items) |stmt| {
+            stmt.*.display(indents+1);
+        }
+        printIndents(indents);
+        debug.print("}}\n", .{});
+    }
+};
+
+pub const FunctionDeclareStmt = struct {
+    name: Token,
+    params: ?std.ArrayList(Token),
+    body: std.ArrayList(*Stmt),
+
+    pub fn display(self: *const FunctionDeclareStmt, indents: u32) void {
+        assert(self.name.lexeme != null);
+        const name = self.name.lexeme.?;
+
+        debug.print("fun {s}(", .{ name });
+        if (self.params) |params| {
+            for (params.items) |param| {
+                if (param.lexeme) |lexeme| {
+                    debug.print("{s}, ", .{ lexeme });
+                } else {
+                    debug.print("-, ", .{});
+                }
+            }
+        }
+        debug.print(")\n{{\n", .{});
+
+        for (self.body.items) |stmt| {
+            stmt.*.display(indents+1);
+        }
+        debug.print("}}\n", .{});
+    }
+};
+
+pub const ReturnStmt = struct {
+    keyword: Token,
+    expr: ?*Expr,
+
+    fn display(self: *const ReturnStmt) void {
+        debug.print("return", .{});
+        if (self.expr) |expr| {
+            debug.print(" ", .{});
+            expr.*.display(false);
+        }
+        debug.print(";\n", .{});
     }
 };
 

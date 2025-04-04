@@ -5,26 +5,33 @@ const Allocator = @import("std").mem.Allocator;
 const opt         = @import("options.zig");
 const lexer       = @import("lexer.zig");
 const ast         = @import("ast.zig");
-const Parser      = @import("parser.zig").Parser;
-const Interpreter = @import("interpreter.zig").Interpreter;
+const Parser      = @import("parser.zig");
+const Interpreter = @import("interpreter.zig");
 
 pub fn main() void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var options = opt.parseOptions(gpa.allocator());
-
     // NOTE(yemon): Maybe the repl could use an arena allocator, 
     // which can essentially reset after every execution.
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
+    // defer _ = gpa.deinit();
+ 
+    var options = opt.parseOptions(allocator);
+    defer {
+        if (options.input_file_path) |input_file_path| {
+            allocator.free(input_file_path);
+        }
+    }
 
     var interpreter = Interpreter.init(allocator);
     interpreter.debug_print = options.verbose;
     interpreter.debug_env = options.show_env;
+    // defer allocator.destroy(interpreter.env);
 
     var repl = Repl.init(&interpreter);
     if (options.repl_start) {
         repl.start(allocator, &options);
     } else {
-        runFile(allocator, &options);
+        runFile(allocator, &interpreter, &options);
     }
 }
 
@@ -55,7 +62,7 @@ const Repl = struct {
         while (!self.should_quit) {
             debug.print(">> ", .{});
             input_buffer = stdin.readUntilDelimiterAlloc(allocator, '\n', buffer_size) catch "";
-            defer input_buffer = "";
+            defer allocator.free(input_buffer);     // NOTE(yemon): is this really necessary, or working?
 
             const input = std.mem.trim(u8, input_buffer, " \r");
             if (input.len == 0) {
@@ -63,19 +70,37 @@ const Repl = struct {
             } else {
                 run(allocator, self.interpreter, input, options);
             }
-            defer allocator.free(input_buffer);
         }
     }
 };
 
-fn runFile(allocator: Allocator, options: *const opt.Options) void {
-    _ = allocator;
-    _ = options;
-    debug.print("TODO(yemon): WIP on the runFile(..) function on the given script\n", .{});
+fn runFile(allocator: Allocator, interpreter: *Interpreter, options: *const opt.Options) void {
+    if (options.*.input_file_path) |input_file_path| {
+        if (options.verbose) {
+            debug.print("Input file path: {s}\n", .{ input_file_path[0..] });
+        }
+        const contents = opt.openReadFile(allocator, input_file_path, options.verbose) catch |err| {
+            debug.print("ERROR: {}\n", .{ err });
+            return;
+        };
+        defer allocator.free(contents);
+
+        if (options.verbose) {
+            debug.print("openReadFile(..) output ({} bytes):\n", .{ contents.len });
+            // debug.print("{s}\n", .{ contents });
+        }
+
+        run(allocator, interpreter, contents, options);
+    } else {
+        debug.print("No script files provided in the command line as the first argument.\n", .{});
+    }
 }
 
 fn run(allocator: Allocator, interpreter: *Interpreter, source: []const u8, options: *const opt.Options) void {
-    var scanner = lexer.Scanner.init(allocator, source, options.verbose);
+    if (options.verbose) {
+        debug.print("------------------------------------------------------------\n", .{});
+    }
+    var scanner = lexer.Scanner.init(allocator, source, options.show_tokens);
     scanner.startScanning(options.repl_start);
 
     if (options.show_tokens) {
@@ -83,9 +108,11 @@ fn run(allocator: Allocator, interpreter: *Interpreter, source: []const u8, opti
             token.display();
         }
     }
+    if (options.verbose) {
+        debug.print("------------------------------------------------------------\n", .{});
+    }
 
-    var parser = Parser.init(&scanner.tokens);
-    parser.debug_print = options.verbose;
+    var parser = Parser.init(&scanner.tokens, options.debug_parser, options.debug_ast);
     // NOTE(yemon): `ParserError` is being printed out here temporarily.
     // Idealy, the parser should handle the error states internally, and 
     // shouldn't bubble up at all.
@@ -93,10 +120,13 @@ fn run(allocator: Allocator, interpreter: *Interpreter, source: []const u8, opti
         debug.print("Error when parsing the expression tree: {}\n", .{ err });
         return;
     };
+    if (options.verbose) {
+        debug.print("------------------------------------------------------------\n", .{});
+    }
 
-    interpreter.executeAll(allocator, statements) catch |err| {
-        debug.print("Runtime error occured:\n", .{});
-        debug.print("{}\n", .{ err });
+    // _ = interpreter.*.executeAll(allocator, statements) catch |err| {
+    _ = interpreter.*.executeBlock(allocator, statements) catch |err| {
+        debug.print("Runtime error occured: {}\n", .{ err });
         return;
     };
 }

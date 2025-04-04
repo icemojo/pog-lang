@@ -482,6 +482,8 @@ pub fn checkKeyword(literal: []const u8) ?Keyword {
         return .{ .token_type = .Return, .lexeme = "return" };
     } else if (eql(u8, lower, "if")) {
         return .{ .token_type = .If, .lexeme = "if" };
+    } else if (eql(u8, lower, "else")) {
+        return .{ .token_type = .Else, .lexeme = "else" };
     } else if (eql(u8, lower, "true")) {
         return .{ .token_type = .True, .lexeme = "true" };
     } else if (eql(u8, lower, "false")) {

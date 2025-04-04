@@ -6,8 +6,11 @@ pub const Options = struct {
     verbose: bool,
     show_help: bool,
     show_tokens: bool,
+    debug_parser: bool,
+    debug_ast: bool,
     show_env: bool,
     repl_start: bool,
+    input_file_path: ?[]u8,
 };
 
 pub fn parseOptions(allocator: Allocator) Options {
@@ -21,11 +24,14 @@ pub fn parseOptions(allocator: Allocator) Options {
         .verbose = false,
         .show_help = false,
         .show_tokens = false,
+        .debug_parser = false,
+        .debug_ast = false,
         .show_env = false,
         .repl_start = false,
+        .input_file_path = null,
     };
     var unknowns = std.ArrayList([]u8).init(allocator);
-    for (args[1..]) |arg| {
+    for (args[1..], 0..) |arg, idx| {
         if (eql(u8, arg, "-v") or eql(u8, arg, "--verbose")) {
             options.verbose = true;
             continue;
@@ -38,6 +44,14 @@ pub fn parseOptions(allocator: Allocator) Options {
             options.show_tokens = true;
             continue;
         }
+        if (eql(u8, arg, "-p") or eql(u8, arg, "--parser")) {
+            options.debug_parser = true;
+            continue;
+        }
+        if (eql(u8, arg, "-a") or eql(u8, arg, "--ast")) {
+            options.debug_ast = true;
+            continue;
+        }
         if (eql(u8, arg, "-e") or eql(u8, arg, "--env")) {
             options.show_env = true;
             continue;
@@ -46,7 +60,13 @@ pub fn parseOptions(allocator: Allocator) Options {
             options.repl_start = true;
             continue;
         }
-        unknowns.append(arg) catch continue;
+        if (idx == 0) read_input: {
+            options.input_file_path = allocator.alloc(u8, arg.len) 
+                catch break :read_input;
+            @memcpy(options.input_file_path.?, arg);
+        } else {
+            unknowns.append(arg) catch continue;
+        }
     }
     if (unknowns.items.len > 0) {
         debug.print("Unknown list of command line arguments:", .{});
@@ -56,4 +76,34 @@ pub fn parseOptions(allocator: Allocator) Options {
         debug.print("\n", .{});
     }
     return options;
+}
+
+pub fn openReadFile(allocator: Allocator, input_file_path: []const u8, verbose: bool) ![]u8 {
+    const cwd = std.fs.cwd();
+    const file = cwd.openFile(input_file_path, .{}) catch |err| {
+        switch (err) {
+            error.FileNotFound => {
+                debug.print("The given script file \'{s}\' does not exist.\n", .{ input_file_path });
+            },
+            else => {
+                debug.print("Error openeing file: {}\n", .{ err });
+            }
+        }
+        return "";
+    };
+    defer file.close();
+
+    const max_buffer = 1024 * 10 * 10;
+    var buffer = try allocator.alloc(u8, max_buffer);
+    defer allocator.free(buffer);
+
+    try file.seekTo(0);
+    const bytes_read = try file.readAll(buffer[0..]);
+    if (verbose) {
+        debug.print("Read {} bytes from source:\n", .{ bytes_read });
+    }
+
+    const contents = try allocator.alloc(u8, bytes_read);
+    @memcpy(contents, buffer[0..bytes_read]);
+    return contents;
 }
