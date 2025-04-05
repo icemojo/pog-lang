@@ -27,15 +27,12 @@ pub fn main() void {
     var chunk = Chunk.init(allocator);
     defer chunk.deinit();
 
-    chunk.writeCode(.op_return);
-
-    var pos = chunk.addConstant(12);
-    chunk.writeCode(.op_constant);
-    chunk.write(pos);
-
-    pos = chunk.addConstant(2048);
-    chunk.writeCode(.op_constant);
-    chunk.write(pos);
+    chunk.writeCode(.op_add, 98);
+    chunk.writeCode(.op_constant, 98);
+    chunk.writeByte(chunk.addConstant(12), 98);
+    chunk.writeCode(.op_constant, 98);
+    chunk.writeByte(chunk.addConstant(2048), 98);
+    chunk.writeCode(.op_return, 102);
 
     chunk.disassemble("Test chunk");
 }
