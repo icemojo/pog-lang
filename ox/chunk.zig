@@ -8,12 +8,24 @@ const OpCode = enum(u8) {
     op_add,
 };
 
-const Byte = union(enum) {
+// TODO(yemon): The addresses of `Byte` ArrayList items seems to be offsetted with 2 bytes
+pub const Byte = union(enum) {
     op_code: OpCode,
     byte: u8,
+
+    pub fn readByte(self: Byte) ?u8 {
+        switch (self) {
+            .byte => |byte| {
+                return byte;
+            },
+            else => {
+                return null;
+            }
+        }
+    }
 };
 
-const Value = f64;
+pub const Value = f64;
 
 constants: std.ArrayList(Value),
 codes: std.ArrayList(Byte),

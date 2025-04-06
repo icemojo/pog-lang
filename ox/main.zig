@@ -3,6 +3,7 @@ const debug = @import("std").debug;
 const Allocator = @import("std").mem.Allocator;
 
 const opt = @import("options.zig");
+const VM = @import("vm.zig");
 const Chunk = @import("chunk.zig");
 
 pub fn main() void {
@@ -24,15 +25,22 @@ pub fn main() void {
         debug.print("(Verbose mode -v turned on.)\n", .{});
     }
 
-    var chunk = Chunk.init(allocator);
-    defer chunk.deinit();
+    const chunk = allocator.create(Chunk) catch unreachable;
+    chunk.* = Chunk.init(allocator);
+    var vm = VM.init(chunk);
+    defer vm.deinit();
 
-    chunk.writeCode(.op_add, 98);
-    chunk.writeCode(.op_constant, 98);
-    chunk.writeByte(chunk.addConstant(12), 98);
-    chunk.writeCode(.op_constant, 98);
-    chunk.writeByte(chunk.addConstant(2048), 98);
-    chunk.writeCode(.op_return, 102);
+    vm.chunk.writeCode(.op_add, 98);
+    vm.chunk.writeCode(.op_constant, 98);
+    vm.chunk.writeByte(vm.chunk.addConstant(12), 98);
+    vm.chunk.writeCode(.op_constant, 98);
+    vm.chunk.writeByte(vm.chunk.addConstant(2048), 98);
+    vm.chunk.writeCode(.op_constant, 104);
+    vm.chunk.writeByte(vm.chunk.addConstant(3.141592), 104);
+    vm.chunk.writeCode(.op_return, 105);
 
-    chunk.disassemble("Test chunk");
+    vm.chunk.disassemble("Test chunk");
+
+    const result = vm.interpret();
+    _ = result;
 }
