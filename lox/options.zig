@@ -31,6 +31,7 @@ pub fn parseOptions(allocator: Allocator) Options {
         .input_file_path = null,
     };
     var unknowns = std.ArrayList([]u8).init(allocator);
+
     for (args[1..], 0..) |arg, idx| {
         if (eql(u8, arg, "-v") or eql(u8, arg, "--verbose")) {
             options.verbose = true;
@@ -68,6 +69,7 @@ pub fn parseOptions(allocator: Allocator) Options {
             unknowns.append(arg) catch continue;
         }
     }
+
     if (unknowns.items.len > 0) {
         debug.print("Unknown list of command line arguments:", .{});
         for (unknowns.items) |arg| {
@@ -75,7 +77,34 @@ pub fn parseOptions(allocator: Allocator) Options {
         }
         debug.print("\n", .{});
     }
+
     return options;
+}
+
+pub fn displayHelp() void {
+    debug.print("Lox interpreter implementation.\n", .{});
+    debug.print("\n", .{});
+
+    debug.print("  Usage: lox [script_file] [options...]\n", .{});
+    debug.print("\n", .{});
+
+    displayOption("-h", "--help",    "Display this help prompt");
+    displayOption("-r", "--repl",    "Start the REPL");
+    displayOption("-v", "--verbose", "Turn on the verbose mode");
+    debug.print("\n", .{});
+
+    debug.print("  Debug options:\n", .{});
+    displayOption("-t", "--tokenize", "Display the output of the lexer as list of tokens");
+    displayOption("-p", "--parser",   "Display the parser output log");
+    displayOption("-a", "--ast",      "Display the AST output");
+    displayOption("-e", "--env",      "Display the environment tracking variables in each call stack scope");
+    debug.print("\n", .{});
+}
+
+fn displayOption(short: []const u8, long: []const u8, message: []const u8) void {
+    debug.print("  {s:4},  {s:<12}  {s}\n", .{ 
+        short, long, message,
+    });
 }
 
 pub fn openReadFile(allocator: Allocator, input_file_path: []const u8, verbose: bool) ![]u8 {

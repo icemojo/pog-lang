@@ -7,21 +7,18 @@ const ast = @import("ast.zig");
 const Interpreter = @import("interpreter.zig");
 const Environment = @import("interpreter.zig").Environment;
 const Value = @import("interpreter.zig").Value;
-// const ControlFlowError = @import("interpreter.zig").ControlFlowError;
 const ControlFlow = @import("interpreter.zig").ControlFlow;
 
 pub const LoxFunction = struct {
-    const Self = @This();
-    
     declaration: *const ast.FunctionDeclareStmt,
 
-    pub fn init(func_declare_stmt: *const ast.FunctionDeclareStmt) Self {
+    pub fn init(func_declare_stmt: *const ast.FunctionDeclareStmt) LoxFunction {
         return .{
             .declaration = func_declare_stmt,
         };
     }
 
-    pub fn arity(self: *const Self) usize {
+    pub fn arity(self: *const LoxFunction) usize {
         return if (self.declaration.params) |params| params.items.len else 0;
     }
 
@@ -53,7 +50,9 @@ pub const LoxFunction = struct {
         ) catch null;
         debug.print("LoxFunction.call() done ", .{});
         if (control_flow) |flow| {
-            debug.print("WITH control flow result: {s}", .{ flow.return_value.toString(allocator) });
+            debug.print("WITH control flow result: {s}", .{ 
+                flow.return_value.toString(allocator) 
+            });
         } else {
             debug.print("WITHOUT any control flow result.\n", .{});
         }

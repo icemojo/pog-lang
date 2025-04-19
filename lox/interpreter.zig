@@ -373,7 +373,7 @@ pub const ControlFlow = struct {
 //     Function,
 // };
 
-const ReturnValue = Value; // struct {
+//const ReturnValue = Value; // struct {
 //     type: ReturnType,
 //     value: Value,
 // };
@@ -410,6 +410,7 @@ fn evaluateStatement(
             debug.print("{s}\n", .{ value.toString(allocator) });
             return null;
         },
+
         .expr => |expr| {
             self.debugPrint("Evaluating expression...\n", .{});
             _ = try self.evaluate(allocator, expr.expr);
@@ -497,7 +498,6 @@ fn evaluate(
             self.debugPrint("  Evaluating assignment expression...\n", .{});
             return try self.evaluateAssignmentExpr(allocator, &assignment);
         },
-
         .binary => |binary| {
             self.debugPrint("  Evaluating binary expression...\n", .{});
             return try self.evaluateBinaryExpr(allocator, &binary);
@@ -764,7 +764,8 @@ fn evaluateFunctionCallExpr(
     self: *Self, allocator: Allocator, 
     func_call: *const ast.FunctionCallExpr,
 ) (EvaluationError || RuntimeError)!?ControlFlow {
-    switch (func_call.callee.*) {
+    const callee: ast.Expr = func_call.callee.*;
+    switch (callee) {
         .variable => |variable| {
             const name = variable.lexeme orelse unreachable;
             const env_value = self.env.*.getValue(name) catch |err| switch (err) {
