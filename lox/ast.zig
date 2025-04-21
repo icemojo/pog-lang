@@ -318,26 +318,26 @@ pub fn printIndents(indents: u32) void {
 }
 
 pub const Stmt = union(enum) {
-    variable: VariableStmt,
-    print: PrintStmt,
     expr: ExprStmt,
+    block: Block,
+    print: PrintStmt,
     if_stmt: IfStmt,
     while_stmt: WhileStmt,
-    block: Block,
+    variable_declare_stmt: VariableDeclareStmt,
     func_declare_stmt: FunctionDeclareStmt,
     return_stmt: ReturnStmt,
 
     pub fn display(self: Stmt, indents: u32) void {
         printIndents(indents);
         switch (self) {
-            .variable => |variable| {
-                variable.display();
+            .expr => |expr| {
+                expr.display();
+            },
+            .block => |block| {
+                block.display(indents);
             },
             .print => |print| {
                 print.display();
-            },
-            .expr => |expr| {
-                expr.display();
             },
             .if_stmt => |if_stmt| {
                 if_stmt.display(indents);
@@ -345,11 +345,11 @@ pub const Stmt = union(enum) {
             .while_stmt => |while_stmt| {
                 while_stmt.display(indents);
             },
-            .block => |block| {
-                block.display(indents);
+            .variable_declare_stmt => |variable_declare| {
+                variable_declare.display();
             },
-            .func_declare_stmt => |func_declare_stmt| {
-                func_declare_stmt.display(indents);
+            .func_declare_stmt => |func_declare| {
+                func_declare.display(indents);
             },
             .return_stmt => |return_stmt| {
                 return_stmt.display();
@@ -358,11 +358,11 @@ pub const Stmt = union(enum) {
     }
 };
 
-pub const VariableStmt = struct {
+pub const VariableDeclareStmt = struct {
     name: []u8,
     initializer: ?*Expr,
 
-    fn display(self: *const VariableStmt) void {
+    fn display(self: *const VariableDeclareStmt) void {
         debug.print("var {s}", .{ self.name });
         if (self.initializer) |initializer| {
             debug.print(" = ", .{});
@@ -383,7 +383,7 @@ pub fn createVariableStmt(allocator: Allocator, identifier: Token, initializer: 
 
         const stmt = try allocator.create(Stmt);
         stmt.* = Stmt{
-            .variable = VariableStmt{
+            .variable_declare_stmt = VariableDeclareStmt{
                 .name = target_name,
                 .initializer = initializer,
             },
