@@ -22,6 +22,11 @@ pub fn main() void {
         }
     }
 
+    if (options.show_help) {
+        opt.displayHelp();
+        return;
+    }
+
     var interpreter = Interpreter.init(allocator);
     interpreter.debug_print = options.verbose;
     interpreter.debug_env = options.show_env;
@@ -31,7 +36,12 @@ pub fn main() void {
     if (options.repl_start) {
         repl.start(allocator, &options);
     } else {
-        runFile(allocator, &interpreter, &options);
+        if (options.input_file_path) |input_file_path| {
+            runFile(allocator, &interpreter, input_file_path, &options);
+        } else {
+            debug.print("No script files provided in the command line as the first argument.\n", .{});
+            debug.print("(Use -h to print out the available options)\n", .{});
+        }
     }
 }
 
@@ -51,18 +61,21 @@ const Repl = struct {
     fn start(self: *Repl, allocator: Allocator, options: *const opt.Options) void {
         const stdin = std.io.getStdIn().reader();
 
-        debug.print("Lox interpreter in Zig\n", .{});
+        debug.print("Lox interpreter implementation.\n", .{});
         debug.print("(Use -h to print out the available options)\n", .{});
         if (options.verbose) {
             debug.print("(Verbose mode -v turned on.)\n", .{});
         }
 
+        // NOTE(yemon): Generally, the REPL should be working within the bounds
+        // of an area allocator, both for parsing and evaluating.
         const buffer_size = 1024;
         var input_buffer: []u8 = undefined;
         while (!self.should_quit) {
             debug.print(">> ", .{});
             input_buffer = stdin.readUntilDelimiterAlloc(allocator, '\n', buffer_size) catch "";
-            defer allocator.free(input_buffer);     // NOTE(yemon): is this really necessary, or working?
+            // NOTE(yemon): is this really necessary, or working?
+            defer allocator.free(input_buffer);
 
             const input = std.mem.trim(u8, input_buffer, " \r");
             if (input.len == 0) {
@@ -74,29 +87,35 @@ const Repl = struct {
     }
 };
 
-fn runFile(allocator: Allocator, interpreter: *Interpreter, options: *const opt.Options) void {
-    if (options.*.input_file_path) |input_file_path| {
-        if (options.verbose) {
-            debug.print("Input file path: {s}\n", .{ input_file_path[0..] });
-        }
-        const contents = opt.openReadFile(allocator, input_file_path, options.verbose) catch |err| {
+fn runFile(
+    allocator: Allocator, 
+    interpreter: *Interpreter, 
+    input_file_path: []const u8,
+    options: *const opt.Options,
+) void {
+    if (options.verbose) {
+        debug.print("Input file path: {s}\n", .{ input_file_path[0..] });
+    }
+    const contents = opt.openReadFile(allocator, input_file_path, options.verbose) 
+        catch |err| {
             debug.print("ERROR: {}\n", .{ err });
             return;
         };
-        defer allocator.free(contents);
+    defer allocator.free(contents);
 
-        if (options.verbose) {
-            debug.print("openReadFile(..) output ({} bytes):\n", .{ contents.len });
-            // debug.print("{s}\n", .{ contents });
-        }
-
-        run(allocator, interpreter, contents, options);
-    } else {
-        debug.print("No script files provided in the command line as the first argument.\n", .{});
+    if (options.verbose) {
+        debug.print("openReadFile(..) output ({} bytes):\n", .{ contents.len });
     }
+
+    run(allocator, interpreter, contents, options);
 }
 
-fn run(allocator: Allocator, interpreter: *Interpreter, source: []const u8, options: *const opt.Options) void {
+fn run(
+    allocator: Allocator, 
+    interpreter: *Interpreter, 
+    source: []const u8, 
+    options: *const opt.Options,
+) void {
     if (options.verbose) {
         debug.print("------------------------------------------------------------\n", .{});
     }
@@ -129,8 +148,4 @@ fn run(allocator: Allocator, interpreter: *Interpreter, source: []const u8, opti
         debug.print("Runtime error occured: {}\n", .{ err });
         return;
     };
-}
-
-fn reportError(line: u32, where: []const u8, message: []const u8) void {
-    debug.print("[{}] ERR {s}: {s}\n", .{ line, where, message });
 }
