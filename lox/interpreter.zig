@@ -408,27 +408,28 @@ fn evaluateStatement(
 
         .block => |block| {
             self.debugPrint("Evaluating a block...\n", .{});
-            // const return_value = try self.executeBlock(allocator, block.statements);
-            // return return_value;
-            // const control_flow = try self.executeBlock(allocator, block.statements);
-            // return control_flow;
             const block_eval = try self.executeBlock(allocator, block.statements);
+
             if (block_eval.getIfFuncReturn()) |func_return| {
-                _ = func_return;
-                // TODO: break out of the call stack
-                self.debugPrint("  Block got function return. Should break out...\n", .{});
+                self.debugPrint("Block got function return. Should break out?\n", .{});
+                if (func_return.caller_depth != self.current_depth) {
+                    // TODO: break out of the call stack??
+                    self.debugPrint("func_return.caller_depth: {} | " ++
+                        "self.caller_depth: {} | self.current_depth: {}\n", .{
+                            func_return.caller_depth, self.caller_depth, self.current_depth,
+                        });
+                    self.debugPrint("Need to break out of the current call stack frame.\n", .{});
+                } else {
+                    self.debugPrint("func_return.caller_depth: {} | " ++
+                        "self.caller_depth: {} | self.current_depth: {}\n", .{
+                            func_return.caller_depth, self.caller_depth, self.current_depth,
+                        });
+                }
                 return block_eval;
             } else {
+                self.debugPrint("Block got NO function return.\n", .{});
                 return .{ .no_return = true };
             }
-
-            // if (control_flow) |flow| {
-            //     self.debugPrint("Block evaluation done WITH control flow {s}\n", .{ flow.return_value.toString(allocator) });
-            // } else {
-            //     self.debugPrint("Block evaluation done WITHOUT any control flow\n", .{});
-            // }
-
-            // return control_flow;
         },
 
         .print => |print| {
@@ -445,7 +446,7 @@ fn evaluateStatement(
             // TODO(yemon): should I asset the non `expr_value` types here?
             const condition = eval.expr_value;
             if (condition.isTruthy()) {
-                self.debugPrint("  TRUE... \n", .{});
+                self.debugPrint("TRUE... \n", .{});
                 _ = try self.evaluateStatement(allocator, if_stmt.then_branch);
             } else {
                 self.debugPrint("  FALSE... \n", .{});
@@ -645,7 +646,6 @@ fn evaluate(
             if (self.debug_print) {
                 func_call.display(false);
                 debug.print("\n", .{});
-                // self.debugPrint("\n", .{});
             }
 
             self.debugPrint("  Function callee expr: ", .{});
@@ -657,15 +657,23 @@ fn evaluate(
             const func_eval_result: EvaluateResult = try self.evaluateFunctionCallExpr(
                 allocator, &func_call
             );
-            self.debugPrint("Finished function call expression :: \n", .{});
+            self.debugPrint("Finished function call expression :: ", .{});
             if (self.debug_print) {
                 func_call.display(false);
                 debug.print("\n", .{});
             }
 
+            if (func_eval_result.getIfFuncReturn()) |func_return| {
+                if (self.caller_depth != func_return.caller_depth) {
+                    // break out of the current recursive evaluation call
+                } else {
+                    //
+                }
+            }
+
             const func_return = func_eval_result.func_return;
             // if (func_return) |func_return| {
-            if (self.caller_depth == func_return.caller_depth) {
+            if (self.current_depth == func_return.caller_depth) {
                 // break out of all evaluation recursive calls
             } else {
                 //
@@ -675,22 +683,6 @@ fn evaluate(
             // }
 
             return func_eval_result;
-
-            // const control_flow = try self.evaluateFunctionCallExpr(allocator, &func_call);
-            // self.debugPrint("Function call expression done :: ", .{});
-            // if (control_flow) |flow| {
-            //     if (self.debug_print) {
-            //         func_call.display(false);
-            //         self.debugPrint("WITH control flow {s}\n", .{ 
-            //             flow.return_value.toString(allocator) 
-            //         });
-            //     }
-            //     const return_value: Value = flow.return_value;
-            //     return return_value;
-            // } else {
-            //     self.debugPrint("WITHOUT control flow.\n", .{});
-            //     return Value{ .nil = true };
-            // }
         },
     }
 }
@@ -878,14 +870,10 @@ fn evaluateUnaryExpr(
     }
 }
 
-// NOTE(yemon): 
-//   1) free functions can be called
-//   2) class 'member functions' can be called in scope of its instance
-//   3) 'class definitions' can be called to construct a new instance
 fn evaluateFunctionCallExpr(
     self: *Self, allocator: Allocator, 
     func_call: *const ast.FunctionCallExpr,
-) (EvaluationError || RuntimeError)!EvaluateResult {
+) RuntimeError!EvaluateResult {
     const callee: ast.Expr = func_call.callee.*;
     switch (callee) {
         .variable => |variable| {
@@ -913,16 +901,6 @@ fn evaluateFunctionCallExpr(
                     if (lox_function.arity() != args_count) {
                         return RuntimeError.FunctionArityMismatch;
                     }
-
-                    // self.debugPrint("  Triggering LoxFunction call() with {} arguments.\n", .{
-                    //     if (evaluated_args) |args| args.items.len else 0
-                    // });
-                    // const control_flow = lox_function.call(allocator, self, evaluated_args);
-                    // self.debugPrint("  LoxFunction call() result: \n", .{});
-                    // if (control_flow) |flow| {
-                        // self.debugPrint("{s}", .{ flow.return_value.toString(allocator) });
-                    // }
-                    // return control_flow;
 
                     const func_eval_result: EvaluateResult = lox_function.call(
                         allocator, self, evaluated_args
@@ -966,30 +944,17 @@ pub fn executeBlock(
     statements: std.ArrayList(*ast.Stmt)
 ) !EvaluateResult {
     self.current_depth += 1;
-    // if (self.env.*.inner_return) |inner_return| {
-        // self.debugPrint(">>> Inner block returned a value: {s}. Need to early break!\n", .{ 
-            // inner_return.toString(allocator) 
-        // });
-        // return ControlFlow{
-        //     .return_value = inner_return,
-        // };
-    // } else {
-        // self.debugPrint(">>> Inner block returned NOTHING!\n", .{});
-    // }
-
     const parent_env = self.env;
     const block_env = Environment.init(allocator, self.env);
     defer allocator.destroy(block_env);
 
     self.debugPrint("  >> executeBlock():\n", .{});
     self.env = block_env;
-    // const control_flow = try self.executeAll(allocator, statements);
-    // const control_flow: ?ControlFlow = control: for (statements.items) |stmt| {
-    var eval_result: EvaluateResult = undefined;
-    control: for (statements.items) |stmt| {
-        eval_result = try self.evaluateStatement(allocator, stmt);
 
-        switch (eval_result) {
+    const eval_result: EvaluateResult = control: for (statements.items) |stmt| {
+        const stmt_eval = try self.evaluateStatement(allocator, stmt);
+
+        switch (stmt_eval) {
             .func_return => |func_return| {
                 self.debugPrint("  >> Need to return the function call. " ++ 
                     "(Return value: {s}, caller_depth: {})\n", .{
@@ -1001,33 +966,15 @@ pub fn executeBlock(
                 continue :control;
             }
         }
-        // break :control .{ .no_return = true };
-        // if (flow) |it| {
-        //     self.debugPrint(">>> Need to break out WITH {s}.\n", .{ 
-        //         it.return_value.toString(allocator) 
-        //     });
-        //     break :control flow;
-        // } else {
-        //     continue :control;
-        // }
-    } // else .{ .no_return = true }; // else null;
+    } else .{ .no_return = true };
     self.env = parent_env;
 
-    // if (control_flow) |flow| {
-    //     self.debugPrint(">>> executeBlock(): done WITH {s}\n", .{ 
-    //         flow.return_value.toString(allocator) 
-    //     });
-    //     self.env.*.inner_return = flow.return_value;
-    // } else {
-    //     self.debugPrint(">>> executeBlock(): done WITHOUT control flow result.\n", .{});
-    // }
     self.debugPrint("  >> caller_depth: {}, current_depth: {}\n", .{ 
         self.caller_depth, self.current_depth
     });
     self.debugPrint("  >> executeBlock() done!\n", .{});
 
     self.current_depth -= 1;
-    // return control_flow;
     return eval_result;
 }
 
@@ -1037,25 +984,13 @@ pub fn executeBlockEnv(
     with_env: *Environment
 ) !EvaluateResult {
     self.current_depth += 1;
-    // if (self.env.*.inner_return) |inner_return| {
-    //     self.debugPrint(">>> Inner block returned a value: {s}. Need to early break!\n", .{ 
-    //         inner_return.toString(allocator) 
-    //     });
-        // return ControlFlow{
-        //     .return_value = inner_return,
-        // };
-    // } else {
-    //     self.debugPrint(">>> Inner block returned NOTHING!\n", .{});
-    // }
-
     const parent_env = self.env;
 
     self.debugPrint("  >> executeBlockEnv():\n", .{});
     self.env = with_env;
-    // const control_flow = try self.executeAll(allocator, statements);
-    // const control_flow: ?ControlFlow = control: for (statements.items) |stmt| {
+
     const eval_result: EvaluateResult = control: for (statements.items) |stmt| {
-        const stmt_eval: EvaluateResult = try self.evaluateStatement(allocator, stmt);
+        const stmt_eval = try self.evaluateStatement(allocator, stmt);
 
         switch (stmt_eval) {
             .func_return => |func_return| {
@@ -1069,32 +1004,14 @@ pub fn executeBlockEnv(
                 continue :control;
             }
         }
-        // break :control .{ .no_return = true };
-        // if (flow) |it| {
-        //     self.debugPrint(">>> Need to break out WITH {s}.\n", .{ 
-        //         it.return_value.toString(allocator) 
-        //     });
-        //     break :control flow;
-        // } else {
-        //     continue :control;
-        // }
-    } else .{ .no_return = true }; // else null;
+    } else .{ .no_return = true };
     self.env = parent_env;
     
-    // if (control_flow) |flow| {
-    //     self.debugPrint(">>> executeBlockEnv(): done WITH {s}\n", .{ 
-    //         flow.return_value.toString(allocator) 
-    //     });
-    //     self.env.*.inner_return = flow.return_value;
-    // } else {
-    //     self.debugPrint(">>> executeBlockEnv(): done WITHOUT control flow result.\n", .{});
-    // }
     self.debugPrint("  >> caller_depth: {}, current_depth: {}\n", .{ 
         self.caller_depth, self.current_depth
     });
 
     self.current_depth -= 1;
-    // return control_flow;
     return eval_result;
 }
 

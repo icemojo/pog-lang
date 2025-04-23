@@ -7,8 +7,11 @@ const ast = @import("ast.zig");
 const Interpreter = @import("interpreter.zig");
 const Environment = @import("interpreter.zig").Environment;
 const Value = @import("interpreter.zig").Value;
-// const ControlFlow = @import("interpreter.zig").ControlFlow;
 const EvaluateResult = @import("interpreter.zig").EvaluateResult;
+
+// 1) free functions can be called
+// 2) class 'member functions' can be called in scope of its instance
+// 3) 'class definitions' can be called to construct a new instance
 
 pub const LoxFunction = struct {
     declaration: *const ast.FunctionDeclareStmt,
@@ -27,7 +30,7 @@ pub const LoxFunction = struct {
         self: *const LoxFunction, allocator: Allocator,
         interpreter: *Interpreter, 
         func_args: ?std.ArrayList(Value)
-    ) EvaluateResult { //} Value {
+    ) EvaluateResult {
         const func_env = Environment.init(allocator, interpreter.global_env);
         defer allocator.destroy(func_env);
 
@@ -45,51 +48,24 @@ pub const LoxFunction = struct {
 
         debug.print("LoxFunction.call():\n", .{});
         // TODO(yemon): Errors in the block execution should probably be handled in place
-        // within the block execution itself... probably
-        // Or, block execution should not return an error altogether, and there's a design
-        // flaw there.
+        // within the block execution itself... probably. Or, block execution should not 
+        // return an error altogether, and there's a design flaw with either reporting 
+        // and/or handling `RuntimeError` there.
         const func_eval_result: EvaluateResult = interpreter.executeBlockEnv(
             allocator, self.declaration.*.body, func_env
         ) catch unreachable;
-        const func_return = func_eval_result.func_return;
-        debug.print("LoxFunction.call() done WITH return value: {s} for caller depth {}.\n", .{
-            func_return.value.toString(allocator), func_return.caller_depth,
-        });
 
-        return func_eval_result;
-
-
-        // const control_flow: ?ControlFlow = interpreter.executeBlockEnv(
-        //     allocator, 
-        //     self.declaration.*.body, 
-        //     func_env
-        // ) catch null;
-        // debug.print("LoxFunction.call() done ", .{});
-        // if (control_flow) |flow| {
-        //     debug.print("WITH control flow result: {s}", .{ 
-        //         flow.return_value.toString(allocator) 
-        //     });
-        // } else {
-        //     debug.print("WITHOUT any control flow result.\n", .{});
-        // }
-
-        // return control_flow;
-
-
-        // if (control_flow) |flow| {
-        //     return flow.return_value;
-        // } else {
-        //     return Value{ .nil = true };
-        // }
-
-        //     ControlFlowError.FunctionReturned => {
-        //         // TODO(yemon): how am I actually gonna grab the returned 'value' 
-        //         // through error??
-        //     },
-        //     else => {
-        //         return err;
-        //     },
-        // };
+        if (func_eval_result.getIfFuncReturn()) |func_return| {
+            // TODO(yemon): notify the caller `evaluateFunctionCallExpr()` that
+            // there will be function return "signal"!
+            debug.print("LoxFunction.call() done WITH return value: {s} for caller depth {}.\n", .{
+                func_return.value.toString(allocator), func_return.caller_depth,
+            });
+            return func_eval_result;
+        } else {
+            // ???
+            return .{ .no_return = true };
+        }
     }
 
     pub fn toString(self: LoxFunction, allocator: Allocator) []const u8 {
