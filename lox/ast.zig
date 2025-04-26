@@ -18,6 +18,19 @@ pub const Expr = union(enum) {
     variable: VariableExpr,
     func_call: FunctionCallExpr,
 
+    pub fn getTypeName(self: Expr) []const u8 {
+        return switch (self) {
+            .assign => "assignment",
+            .binary => "binary",
+            .logical => "logical",
+            .unary => "unary",
+            .grouping => "grouping",
+            .literal => "literal",
+            .variable => "variable",
+            .func_call => "function call",
+        };
+    }
+
     pub fn display(self: Expr, line_break: bool) void { 
         switch (self) {
             .assign => |assignment| {
@@ -318,9 +331,9 @@ pub fn printIndents(indents: u32) void {
 }
 
 pub const Stmt = union(enum) {
-    expr: ExprStmt,
-    block: Block,
-    print: PrintStmt,
+    expr_stmt: ExprStmt,
+    block_stmt: BlockStmt,
+    print_stmt: PrintStmt,
     if_stmt: IfStmt,
     while_stmt: WhileStmt,
     variable_declare_stmt: VariableDeclareStmt,
@@ -330,13 +343,13 @@ pub const Stmt = union(enum) {
     pub fn display(self: Stmt, indents: u32) void {
         printIndents(indents);
         switch (self) {
-            .expr => |expr| {
+            .expr_stmt => |expr| {
                 expr.display();
             },
-            .block => |block| {
+            .block_stmt => |block| {
                 block.display(indents);
             },
-            .print => |print| {
+            .print_stmt => |print| {
                 print.display();
             },
             .if_stmt => |if_stmt| {
@@ -407,7 +420,7 @@ pub const PrintStmt = struct {
 pub fn createPrintStmt(allocator: Allocator, expr: *Expr) !*Stmt {
     const stmt = try allocator.create(Stmt);
     stmt.* = Stmt{
-        .print = PrintStmt{
+        .print_stmt = PrintStmt{
             .expr = expr,
         },
     };
@@ -426,7 +439,7 @@ pub const ExprStmt = struct {
 pub fn createExprStmt(allocator: Allocator, expr: *Expr) !*Stmt {
     const stmt = try allocator.create(Stmt);
     stmt.* = Stmt{
-        .expr = ExprStmt{
+        .expr_stmt = ExprStmt{
             .expr = expr,
         },
     };
@@ -488,16 +501,16 @@ pub fn createWhileStmt(allocator: Allocator, condition: *Expr, body: *Stmt) !*St
     return stmt;
 }
 
-pub const Block = struct {
+pub const BlockStmt = struct {
     statements: std.ArrayList(*Stmt),
 
-    pub fn init(allocator: Allocator) Block {
+    pub fn init(allocator: Allocator) BlockStmt {
         return .{
             .statements = std.ArrayList(*Stmt).init(allocator),
         };
     }
 
-    pub fn display(self: *const Block, indents: u32) void {
+    pub fn display(self: *const BlockStmt, indents: u32) void {
         debug.print("{{\n", .{});
         for (self.statements.items) |stmt| {
             stmt.*.display(indents+1);

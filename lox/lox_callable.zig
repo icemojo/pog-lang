@@ -22,8 +22,9 @@ pub const LoxFunction = struct {
         };
     }
 
-    pub fn arity(self: *const LoxFunction) usize {
-        return if (self.declaration.params) |params| params.items.len else 0;
+    pub fn arity(self: LoxFunction) usize {
+        return if (self.declaration.*.params) |params| params.items.len else 0;
+        // return @as(usize, self.declaration.*.arity);
     }
 
     pub fn call(
@@ -34,7 +35,7 @@ pub const LoxFunction = struct {
         const func_env = Environment.init(allocator, interpreter.global_env);
         defer allocator.destroy(func_env);
 
-        if (self.declaration.params != null and func_args != null) {
+        if (self.declaration.*.params != null and func_args != null) {
             const params = self.declaration.params.?;
             const args = func_args.?;
 
@@ -53,7 +54,7 @@ pub const LoxFunction = struct {
         // and/or handling `RuntimeError` there.
         const func_eval_result: EvaluateResult = interpreter.executeBlockEnv(
             allocator, self.declaration.*.body, func_env
-        ) catch unreachable;
+        ); // catch unreachable;
 
         if (func_eval_result.getIfFuncReturn()) |func_return| {
             // TODO(yemon): notify the caller `evaluateFunctionCallExpr()` that
@@ -70,7 +71,8 @@ pub const LoxFunction = struct {
 
     pub fn toString(self: LoxFunction, allocator: Allocator) []const u8 {
         const name = if (self.declaration.name.lexeme) |lexeme| lexeme else "NA";
-        const str = fmt.allocPrint(allocator, "<fun {s}>", .{ name }) catch "-";
+        const str = fmt.allocPrint(allocator, "<fun {s} {}>", .{ name, self.arity() }) 
+            catch "-";
         return str;
     }
 };
