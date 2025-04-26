@@ -424,30 +424,10 @@ fn evaluateStatement(
             self.debugPrint("Evaluating a block (depth: {})...\n", .{ self.current_depth });
             const block_eval = self.executeBlock(allocator, block.statements);
 
-            self.debugPrint("  Block got '{s}' result.\n", .{ block_eval.getTypeName() });
+            self.debugPrint("  Block got '{s}' result. (depth: {})\n", .{ 
+                block_eval.getTypeName(), self.current_depth
+            });
 
-            // if (block_eval.getIfFuncReturn()) |func_return| {
-                // self.debugPrint("Block got function return. Should break out?\n", .{});
-                // self.debugPrint("  >> Return value: {s}, caller_depth {}\n", .{
-                    // func_return.value.toString(allocator), func_return.caller_depth
-                // });
-                // if (func_return.caller_depth != self.current_depth) {
-                //     // TODO: break out of the call stack??
-                //     self.debugPrint("func_return.caller_depth: {} | " ++
-                //         "self.caller_depth: {} | self.current_depth: {}\n", .{
-                //             func_return.caller_depth, self.caller_depth, self.current_depth,
-                //         });
-                //     self.debugPrint("Need to break out of the current call stack frame.\n", .{});
-                // } else {
-                //     self.debugPrint("func_return.caller_depth: {} | " ++
-                //         "self.caller_depth: {} | self.current_depth: {}\n", .{
-                //             func_return.caller_depth, self.caller_depth, self.current_depth,
-                //         });
-                // }
-                // return block_eval;
-            // } else {
-                // self.debugPrint("Block got NO function return.\n", .{});
-            // }
             return block_eval;
         },
 
@@ -1078,11 +1058,13 @@ pub fn executeBlock(
     control: for (statements.items) |stmt| {
         block_eval = self.evaluateStatement(allocator, stmt);
 
-        // self.debugPrint("  >> Last statement result is '{s}'.\n", .{ block_eval.getTypeName() });
+        // self.debugPrint("  >> Last state evaluation result '{s}'\n", .{ 
+        //     block_eval.getTypeName()
+        // });
  
         switch (block_eval) {
             .func_return => |func_return| {
-                self.debugPrint("  >> Statement received a `func_return`, " ++ 
+                self.debugPrint("  >> Statement received a 'func_return', " ++ 
                     "likely produced by a `return_stmt`. " ++
                     "(Return value: {s}, caller_depth: {})\n", .{
                         func_return.value.toString(allocator), func_return.caller_depth
@@ -1094,7 +1076,11 @@ pub fn executeBlock(
                     "This should disrupt the entire execution altogether.\n", .{});
                 break :control;
             },
-            .no_return, .expr_value => {
+            .no_return => { //, .expr_value => {
+                // self.debugPrint("  >> Statement received 'no_return'.", .{});
+                continue :control;
+            },
+            else => {
                 // self.debugPrint("  >> Statement received negligable result.\n", .{});
                 continue :control;
             }
