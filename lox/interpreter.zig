@@ -416,12 +416,14 @@ fn evaluateStatement(
 ) EvaluateResult {
     switch (stmt.*) {
         .expr_stmt => |expr| {
-            self.debugPrint("Evaluating expression...\n", .{});
+            self.debugPrint("Evaluating expression statement...\n", .{});
             return self.evaluate(allocator, expr.expr);
         },
 
         .block_stmt => |block| {
-            self.debugPrint("Evaluating a block (depth: {})...\n", .{ self.current_depth });
+            self.debugPrint("Evaluating a block statement (depth: {})...\n", .{ 
+                self.current_depth 
+            });
             const block_eval = self.executeBlock(allocator, block.statements);
 
             self.debugPrint("  Block got '{s}' result. (depth: {})\n", .{ 
@@ -443,30 +445,48 @@ fn evaluateStatement(
             self.debugPrint("Evaluating if statement...\n", .{});
             const eval = self.evaluate(allocator, if_stmt.condition);
             const condition = eval.getExprValue();
+
+            var if_eval_result: EvaluateResult = undefined;
             if (condition.isTruthy()) {
                 self.debugPrint("TRUE... \n", .{});
-                _ = self.evaluateStatement(allocator, if_stmt.then_branch);
+                if_eval_result = self.evaluateStatement(allocator, if_stmt.then_branch);
             } else {
                 self.debugPrint("  FALSE... \n", .{});
                 if (if_stmt.else_branch) |else_branch| {
                     self.debugPrint("  else branch...\n", .{});
-                    _ = self.evaluateStatement(allocator, else_branch);
+                    if_eval_result = self.evaluateStatement(allocator, else_branch);
+                } else {
+                    if_eval_result = .{ .no_return = true };
                 }
             }
-            return .{ .no_return = true };
+            return if_eval_result;
         },
 
         .while_stmt => |while_stmt| {
             self.debugPrint("Evaluating while statement block...\n", .{});
             var eval = self.evaluate(allocator, while_stmt.condition);
-            // TODO(yemon): should I asset the non `expr_value` types here?
             var condition = eval.getExprValue();
-            while (condition.isTruthy()) {
-                _ = self.evaluateStatement(allocator, while_stmt.body);
+
+            const loop_eval_result: EvaluateResult = loop: while (condition.isTruthy()) {
+                const eval_result = self.evaluateStatement(allocator, while_stmt.body);
                 eval = self.evaluate(allocator, while_stmt.condition);
                 condition = eval.getExprValue();
-            }
-            return .{ .no_return = true };
+
+                // NOTE(yemon): there's no early `break` from the loops... yet
+                // so only the function return can break the loop body early entirely
+                switch (eval_result) {
+                    .func_return => |func_return| {
+                        break :loop .{ .func_return = func_return };
+                    },
+                    .error_return => {
+                        break .{ .error_return = true };
+                    },
+                    .expr_value, .no_return => {
+                        continue :loop;
+                    }
+                }
+            } else .{ .no_return = true };
+            return loop_eval_result;
         },
 
         .variable_declare_stmt => |variable_declare| {
@@ -545,7 +565,7 @@ fn evaluateStatement(
 pub const EvaluateResult = union(enum) {
     expr_value: Value,
     func_return: FuncReturn,
-    error_return: bool,         // NOTE(yemon): should this carry additional info?
+    error_return: bool,  // NOTE(yemon): should this carry additional info, like an err msg?
     no_return: bool,
 
     fn getExprValue(self: EvaluateResult) Value {
@@ -976,7 +996,7 @@ fn evaluateFunctionCallExpr(
                     );
                     defer {
                         // NOTE(yemon): Probably won't need this if the interpreter
-                        // is using an area.
+                        // is using an arena.
                         if (evaluated_args) |args| args.deinit();
                     }
 
@@ -1032,7 +1052,7 @@ fn evaluateFunctionArguments(
                 continue;
             }
 
-            self.debugPrint("  -> {s}\n", .{ arg_value.toString(allocator) });
+            self.debugPrint("   -> {s}\n", .{ arg_value.toString(allocator) });
             evaluated_args.append(arg_value) catch unreachable;
         }
         return evaluated_args;
@@ -1076,12 +1096,12 @@ pub fn executeBlock(
                     "This should disrupt the entire execution altogether.\n", .{});
                 break :control;
             },
-            .no_return => { //, .expr_value => {
+            .no_return => {
                 // self.debugPrint("  >> Statement received 'no_return'.", .{});
                 continue :control;
             },
-            else => {
-                // self.debugPrint("  >> Statement received negligable result.\n", .{});
+            .expr_value => {
+                // self.debugPrint("  >> Statement received an evaluated 'expr_value'.\n", .{});
                 continue :control;
             }
         }

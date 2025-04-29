@@ -149,12 +149,7 @@ fn run(
         debug.print("------------------------------------------------------------\n", .{});
     }
 
-    debug.print("{}\n", .{ interpreter });
-
     // _ = interpreter.*.executeAll(allocator, statements) catch |err| {
-    if (options.verbose) {
-        debug.print("Interpreter execution block depth {}:\n", .{ interpreter.current_depth });
-    }
     _ = interpreter.*.executeBlock(allocator, statements); // catch |err| {
         // debug.print("Runtime error occured: {}\n", .{ err });
         // return;

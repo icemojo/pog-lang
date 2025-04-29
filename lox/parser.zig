@@ -190,8 +190,6 @@ fn functionDeclareStmt(
     const body = try self.blockStmts(allocator);
     self.debugPrint("Function body parsed.\n", .{});
 
-    // TODO(yemon): the 'name' identification is wrong, the last argument name is
-    // being marked as the function name here...
     const stmt = try allocator.create(ast.Stmt);
     stmt.* = ast.Stmt{
         .func_declare_stmt = ast.FunctionDeclareStmt{
