@@ -280,48 +280,12 @@ fn concatStrings(allocator: Allocator, string1: []u8, string2: []u8) Value {
     return Value{ .string = target_string };
 }
 
-// NOTE(yemon): Is there any difference between `EvaluationError` and `RuntimeError`
-// at all?? The more I think about it, the more it doesn't make sense to distinguish them
-// altogether. They're both being thrown out during the *actual* execution of the parsed AST.
-// NOTE(yemon): Instead, the error being thrown out of the `evaluate()` and/or 
-// `evaluateStatment()` should probably be more geared towards the control flow.
-// The actual descriptive errors should just be reported to the user.
-const EvaluationError = error {
-    UnknownBinaryOperation,
-    InvalidAssignmentOperation,
-    // InvalidBinaryOperands,
-    // InvalidArithmeticOperand,
-    InvalidComparisonOperand,
-    // InvalidStringOperand,
-    InvalidValueTypeToNegate,
-    StringConcatFailed,
-    InvalidVariableAccess,
-    InvalidFunctionDeclaration,
-    // InvalidFunctionCall,
-    InvalidFunctionReturn,
-    NotDoneYet,
-
-    OutOfMemory,
-};
-
 // NOTE(yemon): Runtime errors should probably return, attached with a proper message
 // since they should probably be presented and visible to the user.
 const RuntimeError = error {
-    // Any one of those `RuntimeError` are a trigger to be broken out of the 
-    // evaluation call stack.
-    EvaluationFailure,
-    UnknownOperation,
     UndefinedIdentifier,
-    InvalidIdentifierAccess,
-    // ???
-
-    InvalidUnaryOperand,
-    InvalidBinaryOperands,
-    UninitializedVariable,
-    UndefinedFunction,
     AlreadyDefinedVariable,
     AlreadyDefinedFunction,
-    // FunctionArityMismatch,
 };
 
 const Self = @This();
@@ -356,60 +320,6 @@ fn initBuiltins(self: *Self, allocator: Allocator) !void {
     // const clock_func = LoxCallable().init(allocator, "clock");
     // try self.global_env.defineFunction("clock", clock_func);
 }
-
-pub fn _executeAll(
-    self: *Self, allocator: Allocator, 
-    statements: std.ArrayList(*ast.Stmt)
-) (EvaluationError || RuntimeError)!?ControlFlow {
-    var control_flow: ?ControlFlow = null;
-
-    // for (statements.items) |stmt| {
-    var i: usize = 0;
-    while (i < statements.items.len) : (i += 1)  {
-        const stmt = statements.items[i];
-
-        control_flow = null;
-        // const control_flow: ?ControlFlow = try self.evaluateStatement(allocator, stmt);
-        control_flow = try self.evaluateStatement(allocator, stmt);
-        if (self.debug_env) {
-            self.env.*.display(allocator);
-        }
-
-        if (control_flow != null) {
-            // self.debugPrint("<<< Statement done with function RETURN {s}\n", .{ 
-                // flow.return_value.toString(allocator),
-            // });
-            break; // :block_scope;
-        } else {
-            // self.debugPrint("<<< Control should NOT break.\n", .{});
-            // self.debugPrint("<<< Statement has NO RETURN.\n", .{});
-            continue; //:block_scope;
-        }
-    }
-    if (control_flow) |flow| {
-        self.debugPrint("<<< executeAll()  : done WITH return value {s}\n", .{ 
-            flow.return_value.toString(allocator) 
-        });
-    } else {
-        self.debugPrint("<<< executeAll()  : done WITHOUT control flow.\n", .{});
-    }
-
-    return control_flow;
-}
-
-pub const ControlFlow = struct {
-    return_value: Value,
-};
-
-// const ReturnType = enum {
-//     Block,
-//     Function,
-// };
-
-//const ReturnValue = Value; // struct {
-//     type: ReturnType,
-//     value: Value,
-// };
 
 fn evaluateStatement(
     self: *Self, allocator: Allocator, stmt: *const ast.Stmt
@@ -551,11 +461,6 @@ fn evaluateStatement(
     }
 }
 
-// pub const EvaluateResult = struct {
-//     has_error: bool,
-//     result: ?ResultType,
-// };
-
 // `expr_value` should be handled in place at the caller
 // `func_return` and/or `error_return` indicates the control flow between the statements
 //  - `func_return` should be used to decide whether the enclosing block should continue
@@ -689,7 +594,6 @@ fn evaluate(
                 else => {
                     report.runtimeError("Invalid identifier access.");
                     // NOTE(yemon): not sure about this yet!
-                    // return RuntimeError.InvalidIdentifierAccess;
                     return .{ .no_return = true };
                 }
             }
@@ -714,18 +618,6 @@ fn evaluate(
                 func_call.display(false);
                 debug.print("\n", .{});
             }
-
-            if (func_eval_result.isErrorReturn()) {
-                // TODO(yemon): handle or break out of the statements loop, maybe?
-            }
-
-            // if (func_eval_result.getIfFuncReturn()) |func_return| {
-                // if (self.caller_depth != func_return.caller_depth) {
-                    // break out of the current recursive evaluation call
-                // } else {
-                    //
-                // }
-            // }
 
             return func_eval_result;
         },
@@ -1073,15 +965,10 @@ pub fn executeBlock(
     self.debugPrint("  >> executeBlock():\n", .{});
     self.env = block_env;
 
-    // const eval_result: EvaluateResult = 
     var block_eval: EvaluateResult = undefined;
     control: for (statements.items) |stmt| {
         block_eval = self.evaluateStatement(allocator, stmt);
 
-        // self.debugPrint("  >> Last state evaluation result '{s}'\n", .{ 
-        //     block_eval.getTypeName()
-        // });
- 
         switch (block_eval) {
             .func_return => |func_return| {
                 self.debugPrint("  >> Statement received a 'func_return', " ++ 
@@ -1096,16 +983,11 @@ pub fn executeBlock(
                     "This should disrupt the entire execution altogether.\n", .{});
                 break :control;
             },
-            .no_return => {
-                // self.debugPrint("  >> Statement received 'no_return'.", .{});
+            .no_return, .expr_value => {
                 continue :control;
             },
-            .expr_value => {
-                // self.debugPrint("  >> Statement received an evaluated 'expr_value'.\n", .{});
-                continue :control;
-            }
         }
-   } // else .{ .no_return = true };
+    }
     self.env = parent_env;
 
     self.debugPrint("  >> caller_depth: {}, current_depth: {}\n", .{ 
@@ -1132,12 +1014,9 @@ pub fn executeBlockEnv(
     self.debugPrint("  >> executeBlockEnv():\n", .{});
     self.env = with_env;
 
-    // const eval_result: EvaluateResult = 
     var block_eval: EvaluateResult = undefined;
     control: for (statements.items) |stmt| {
         block_eval = self.evaluateStatement(allocator, stmt);
-
-        // self.debugPrint("  >> Last statement result '{s}'.\n", .{ block_eval.getTypeName() });
 
         switch (block_eval) {
             .func_return => |func_return| {
@@ -1157,7 +1036,7 @@ pub fn executeBlockEnv(
                 continue :control;
             }
         }
-    } // else .{ .no_return = true };
+    }
     self.env = parent_env;
     
     self.debugPrint("  >> caller_depth: {}, current_depth: {}\n", .{ 
@@ -1195,13 +1074,11 @@ pub const EnvValue = union(enum) {
 // in the same namespace.
 pub const Environment = struct {
     enclosing: ?*Environment,
-    inner_return: ?Value,
     values: std.StringHashMap(EnvValue),
 
     pub fn init(allocator: Allocator, enclosing: ?*Environment) *Environment {
         const env = allocator.create(Environment) catch unreachable;
         env.*.enclosing = enclosing;
-        env.*.inner_return = null;
         env.*.values = std.StringHashMap(EnvValue).init(allocator);
         return env;
     }

@@ -24,7 +24,6 @@ pub const LoxFunction = struct {
 
     pub fn arity(self: LoxFunction) usize {
         return if (self.declaration.*.params) |params| params.items.len else 0;
-        // return @as(usize, self.declaration.*.arity);
     }
 
     pub fn call(
@@ -47,26 +46,10 @@ pub const LoxFunction = struct {
             }
         }
 
-        debug.print("LoxFunction.call():\n", .{});
-        // TODO(yemon): Errors in the block execution should probably be handled in place
-        // within the block execution itself... probably. Or, block execution should not 
-        // return an error altogether, and there's a design flaw with either reporting 
-        // and/or handling `RuntimeError` there.
         const func_eval_result: EvaluateResult = interpreter.executeBlockEnv(
             allocator, self.declaration.*.body, func_env
-        ); // catch unreachable;
-
-        if (func_eval_result.getIfFuncReturn()) |func_return| {
-            // TODO(yemon): notify the caller `evaluateFunctionCallExpr()` that
-            // there will be function return "signal"!
-            debug.print("LoxFunction.call() done WITH return value: {s} for caller depth {}.\n", .{
-                func_return.value.toString(allocator), func_return.caller_depth,
-            });
-            return func_eval_result;
-        } else {
-            // ???
-            return .{ .no_return = true };
-        }
+        );
+        return func_eval_result;
     }
 
     pub fn toString(self: LoxFunction, allocator: Allocator) []const u8 {

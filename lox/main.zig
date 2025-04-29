@@ -149,9 +149,5 @@ fn run(
         debug.print("------------------------------------------------------------\n", .{});
     }
 
-    // _ = interpreter.*.executeAll(allocator, statements) catch |err| {
-    _ = interpreter.*.executeBlock(allocator, statements); // catch |err| {
-        // debug.print("Runtime error occured: {}\n", .{ err });
-        // return;
-    // };
+    _ = interpreter.*.executeBlock(allocator, statements);
 }
