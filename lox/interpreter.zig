@@ -403,7 +403,18 @@ fn evaluateStatement(
             self.debugPrint("Evaluating variable declaration statement...\n", .{});
             if (variable_declare.initializer) |initializer| {
                 const eval = self.evaluate(allocator, initializer);
-                const value = eval.getExprValue();
+                const value: Value = eval: switch (eval) {
+                    .expr_value => |expr_value| {
+                        break :eval expr_value;
+                    },
+                    .func_return => |func_return| {
+                        break :eval func_return.value;
+                    },
+                    else => {
+                        break :eval .{ .nil = true };
+                    },
+                };
+
                 self.env.*.define(variable_declare.name, value) catch {
                     report.runtimeError("Variable declaration failed for unknown reason.");
                 };
