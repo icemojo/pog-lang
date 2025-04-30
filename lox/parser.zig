@@ -190,8 +190,6 @@ fn functionDeclareStmt(
     const body = try self.blockStmts(allocator);
     self.debugPrint("Function body parsed.\n", .{});
 
-    // TODO(yemon): the 'name' identification is wrong, the last argument name is
-    // being marked as the function name here...
     const stmt = try allocator.create(ast.Stmt);
     stmt.* = ast.Stmt{
         .func_declare_stmt = ast.FunctionDeclareStmt{
@@ -215,13 +213,13 @@ fn statement(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
     } else if (self.advanceIfMatched(.Return)) {
         return try self.returnStmt(allocator);
     } else if (self.advanceIfMatched(.LeftBrace)) {
-        var block = ast.Block.init(allocator);
+        var block = ast.BlockStmt.init(allocator);
         const statements = try self.blockStmts(allocator);
         block.statements = statements;
 
         const stmt = try allocator.create(ast.Stmt);
         stmt.* = ast.Stmt{
-            .block = block,
+            .block_stmt = block,
         };
         return stmt;
     } else {
@@ -333,7 +331,7 @@ fn forStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
 
     // NOTE(yemon): De-sugered loop structure instead of having separate AST node 
     // for the 'for' loop, composing it similar to a 'block' using the 'while' loop.
-    var body_block = ast.Block.init(allocator);
+    var body_block = ast.BlockStmt.init(allocator);
     const body_stmt = try self.statement(allocator);
     try body_block.statements.append(body_stmt);
 
@@ -344,18 +342,18 @@ fn forStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
 
     const loop_body = try allocator.create(ast.Stmt);
     loop_body.* = ast.Stmt{
-        .block = body_block,
+        .block_stmt = body_block,
     };
     const for_loop = try ast.createWhileStmt(allocator, condition, loop_body);
 
     if (initializer) |it| {
-        var for_loop_initialized = ast.Block.init(allocator);
+        var for_loop_initialized = ast.BlockStmt.init(allocator);
         try for_loop_initialized.statements.append(it);
         try for_loop_initialized.statements.append(for_loop);
 
         const result = try allocator.create(ast.Stmt);
         result.* = ast.Stmt{
-            .block = for_loop_initialized,
+            .block_stmt = for_loop_initialized,
         };
         return result;
     } else {

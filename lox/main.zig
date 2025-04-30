@@ -11,9 +11,13 @@ const Interpreter = @import("interpreter.zig");
 pub fn main() void {
     // NOTE(yemon): Maybe the repl could use an arena allocator, 
     // which can essentially reset after every execution.
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
+    // var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    // const allocator = gpa.allocator();
     // defer _ = gpa.deinit();
+
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
  
     var options = opt.parseOptions(allocator);
     defer {
@@ -135,6 +139,8 @@ fn run(
     // NOTE(yemon): `ParserError` is being printed out here temporarily.
     // Idealy, the parser should handle the error states internally, and 
     // shouldn't bubble up at all.
+    // NOTE(yemon): Parser errors can potentially prevent the interpreter execution
+    // after the error has been reported (even with the errors that can be synchronized)
     const statements = parser.parse(allocator) catch |err| {
         debug.print("Error when parsing the expression tree: {}\n", .{ err });
         return;
@@ -143,9 +149,5 @@ fn run(
         debug.print("------------------------------------------------------------\n", .{});
     }
 
-    // _ = interpreter.*.executeAll(allocator, statements) catch |err| {
-    _ = interpreter.*.executeBlock(allocator, statements) catch |err| {
-        debug.print("Runtime error occured: {}\n", .{ err });
-        return;
-    };
+    _ = interpreter.*.executeBlock(allocator, statements);
 }
