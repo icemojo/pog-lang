@@ -135,9 +135,7 @@ pub const Scanner = struct {
 
     fn scanToken(self: *Scanner) !void {
         self.start = self.current;
-        // debugPrint(self, ">> {}", .{ self.current });
         if (self.advance()) |current_ch| {
-            // debugPrint(self, > '{c}'\n", .{ current_ch });
             switch (current_ch) {
                 '(' => {
                     self.addNonLexemeToken(.LeftParen);
@@ -254,7 +252,7 @@ pub const Scanner = struct {
                 else => {
                     if (isNumeric(current_ch)) {
                         try self.tokenizeNumber();
-                    } else if (ascii.isAlphabetic(current_ch)) {
+                    } else if (ascii.isAlphabetic(current_ch) or current_ch == '_') {
                         try self.tokenizeIdentifier();
                     } else {
                         // TODO(yemon): is this error report a correct edge case?
@@ -375,7 +373,8 @@ pub const Scanner = struct {
     fn tokenizeIdentifier(self: *Scanner) !void {
         var peek_ch = self.peek();
         while (peek_ch != null or !self.isEnd()) : (peek_ch = self.peek()) {
-            if (ascii.isAlphanumeric(peek_ch.?)) {
+            const char = peek_ch.?;
+            if (ascii.isAlphanumeric(char) or char == '_') {
                 _ = self.advance();
             } else {
                 break;
