@@ -56,6 +56,6 @@ pub const LoxFunction = struct {
 
     pub fn display(self: LoxFunction) void {
         const name = if (self.declaration.name.lexeme) |lexeme| lexeme else "NA";
-        debug.print("<fun {s}>", .{ name });
+        debug.print("<fun {s} *{}>", .{ name, self.arity() });
     }
 };

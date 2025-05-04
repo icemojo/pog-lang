@@ -190,14 +190,10 @@ fn functionDeclareStmt(
     const body = try self.blockStmts(allocator);
     self.debugPrint("Function body parsed.\n", .{});
 
-    const stmt = try allocator.create(ast.Stmt);
-    stmt.* = ast.Stmt{
-        .func_declare_stmt = ast.FunctionDeclareStmt{
-            .name = identifier,
-            .params = if (params.items.len > 0) params else null,
-            .body = body,
-        },
-    };
+    const stmt = try ast.createFunctionDeclareStmt(
+        allocator, identifier, 
+        if (params.items.len > 0) params else null, body
+    );
     return stmt;
 }
 
@@ -384,13 +380,7 @@ fn returnStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
         return ParserError.InvalidFunctionComposition;
     }
 
-    const stmt = try allocator.create(ast.Stmt);
-    stmt.* = ast.Stmt{
-        .return_stmt = ast.ReturnStmt{
-            .keyword = keyword,
-            .expr = expr,
-        },
-    };
+    const stmt = try ast.createReturnStmt(allocator, keyword, expr);
     return stmt;
 }
 

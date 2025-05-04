@@ -982,6 +982,29 @@ fn evaluateFunctionArguments(
     }
 }
 
+pub fn executeRepl(
+    self: *Self, allocator: Allocator, 
+    statements: std.ArrayList(*ast.Stmt)
+) void {
+    self.current_depth += 1;
+
+    var eval: EvaluateResult = undefined;
+    control: for (statements.items) |stmt| {
+        eval = self.evaluateStatement(allocator, stmt);
+
+        if (self.debug_env) {
+            self.env.*.display();
+        }
+
+        // NOTE(yemon): not doing anything right now on eval result variants
+        // if the statements are being evaluated through REPL; will probably
+        // change later on...
+        continue :control;
+    }
+
+    self.current_depth -= 1;
+}
+
 pub fn executeBlock(
     self: *Self, allocator: Allocator, 
     statements: std.ArrayList(*ast.Stmt)
@@ -1114,9 +1137,6 @@ pub const Environment = struct {
     }
 
     fn defineFunction(self: *Environment, name: []const u8, function: LoxFunction) !void {
-        if (self.alreadyDefined(name)) {
-            return RuntimeError.AlreadyDefinedFunction;
-        }
         try self.values.put(name, EnvValue{
             .function = function,
         });
@@ -1157,7 +1177,7 @@ pub const Environment = struct {
         }
     }
 
-    fn display(self: *const Environment) void {
+    pub fn display(self: *const Environment) void {
         debug.print("[Env: ", .{});
         var iter = self.values.iterator();
         while (iter.next()) |entry| {

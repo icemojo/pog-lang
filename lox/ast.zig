@@ -208,6 +208,8 @@ pub const LiteralExpr = union(enum) {
             },
 
             .text => |value| {
+                // TODO(yemon): this is leaking right now, but whatever...
+                // will probably chug the entirety of AST into an arena eventually anyway
                 const target_string: []u8 = allocator.alloc(u8, value.len) catch "";
                 @memcpy(target_string, value);
                 return Value{
@@ -548,6 +550,23 @@ pub const FunctionDeclareStmt = struct {
     }
 };
 
+pub fn createFunctionDeclareStmt(
+    allocator: Allocator, 
+    identifier: Token, 
+    params: ?std.ArrayList(Token), 
+    body: std.ArrayList(*Stmt)
+) !*Stmt {
+    const stmt = try allocator.create(Stmt);
+    stmt.* = .{
+        .func_declare_stmt = .{
+            .name = identifier,
+            .params = params,
+            .body = body,
+        },
+    };
+    return stmt;
+}
+
 pub const ReturnStmt = struct {
     keyword: Token,
     expr: ?*Expr,
@@ -561,6 +580,20 @@ pub const ReturnStmt = struct {
         debug.print(";\n", .{});
     }
 };
+
+pub fn createReturnStmt(
+    allocator: Allocator, 
+    keyword: Token, expr: ?*Expr
+) !*Stmt {
+    const stmt = try allocator.create(Stmt);
+    stmt.* = .{
+        .return_stmt = .{
+            .keyword = keyword,
+            .expr = expr,
+        },
+    };
+    return stmt;
+}
 
 // -----------------------------------------------------------------------------
 
