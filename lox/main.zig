@@ -11,13 +11,13 @@ const Interpreter = @import("interpreter.zig");
 pub fn main() void {
     // NOTE(yemon): Maybe the repl could use an arena allocator, 
     // which can essentially reset after every execution.
-    // var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    // const allocator = gpa.allocator();
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
     // defer _ = gpa.deinit();
 
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    // var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    // defer arena.deinit();
+    // const allocator = arena.allocator();
  
     var options = opt.parseOptions(allocator);
     defer {
@@ -120,9 +120,6 @@ fn run(
     source: []const u8, 
     options: *const opt.Options,
 ) void {
-    if (options.verbose) {
-        debug.print("------------------------------------------------------------\n", .{});
-    }
     var scanner = lexer.Scanner.init(allocator, source, options.show_tokens);
     scanner.startScanning(options.repl_start);
 
@@ -130,8 +127,6 @@ fn run(
         for (scanner.tokens.items) |token| {
             token.display();
         }
-    }
-    if (options.verbose) {
         debug.print("------------------------------------------------------------\n", .{});
     }
 

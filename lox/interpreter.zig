@@ -243,7 +243,7 @@ pub const Value = union(enum) {
         }
     }
 
-    pub fn toString(self: Value, allocator: Allocator) []const u8 {
+    pub fn toString(self: Value, allocator: Allocator, comptime string_quoted: bool) []const u8 {
         switch (self) {
             .integer => |it| {
                 return std.fmt.allocPrint(allocator, "{}", .{ it }) catch "";
@@ -252,13 +252,35 @@ pub const Value = union(enum) {
                 return std.fmt.allocPrint(allocator, "{d}", .{ it }) catch "";
             },
             .string => |it| {
-                return std.fmt.allocPrint(allocator, "\"{s}\"", .{ it }) catch "";
+                return std.fmt.allocPrint(allocator, 
+                    if (string_quoted) "\"{s}\"" else "{s}", .{ it }
+                ) catch "";
             },
             .boolean => |it| {
                 return std.fmt.allocPrint(allocator, "{}", .{ it }) catch "";
             },
             .nil => {
                 return "nil";
+            },
+        }
+    }
+
+    fn display(self: Value, comptime string_quoted: bool) void {
+        switch (self) {
+            .integer => |it| {
+                debug.print("{}", .{ it });
+            },
+            .double => |it| {
+                debug.print("{d}", .{ it });
+            },
+            .string => |it| {
+                debug.print(if (string_quoted) "\"{s}\"" else "{s}", .{ it });
+            },
+            .boolean => |it| {
+                debug.print("{}", .{ it });
+            },
+            .nil => {
+                debug.print("nil", .{});
             },
         }
     }
@@ -313,28 +335,30 @@ pub fn init(allocator: Allocator) Self {
 
 // TODO(yemon): `__env__`, `__name__`, `print()`, `clock()` so on and so forth...
 fn initBuiltins(self: *Self, allocator: Allocator) !void {
-    _ = self;
     _ = allocator;
     // `clock_func` should return this when called:
     // `(double)System.currentTimeMillis() / 1000.0;` with arity 0
     // const clock_func = LoxCallable().init(allocator, "clock");
     // try self.global_env.defineFunction("clock", clock_func);
+
+    const test_name: []u8 = @constCast("test.lox");
+    try self.global_env.*.define("__name__", Value{ .string = test_name });
 }
 
 fn evaluateStatement(
     self: *Self, allocator: Allocator, stmt: *const ast.Stmt
 ) EvaluateResult {
     switch (stmt.*) {
-        .expr_stmt => |expr| {
+        .expr_stmt => |expr_stmt| {
             self.debugPrint("Evaluating expression statement...\n", .{});
-            return self.evaluate(allocator, expr.expr);
+            return self.evaluate(allocator, expr_stmt.expr);
         },
 
-        .block_stmt => |block| {
+        .block_stmt => |block_stmt| {
             self.debugPrint("Evaluating a block statement (depth: {})...\n", .{ 
                 self.current_depth 
             });
-            const block_eval = self.executeBlock(allocator, block.statements);
+            const block_eval = self.executeBlock(allocator, block_stmt.statements);
 
             self.debugPrint("  Block got '{s}' result. (depth: {})\n", .{ 
                 block_eval.getTypeName(), self.current_depth
@@ -343,11 +367,11 @@ fn evaluateStatement(
             return block_eval;
         },
 
-        .print_stmt => |print| {
+        .print_stmt => |print_stmt| {
             self.debugPrint("Evaluating print statement...\n", .{});
-            const eval = self.evaluate(allocator, print.expr);
+            const eval = self.evaluate(allocator, print_stmt.expr);
             const value = eval.getExprValue();
-            debug.print("{s}\n", .{ value.toString(allocator) });
+            debug.print("{s}\n", .{ value.toString(allocator, false) });
             return .{ .no_return = true };
         },
 
@@ -399,9 +423,9 @@ fn evaluateStatement(
             return loop_eval_result;
         },
 
-        .variable_declare_stmt => |variable_declare| {
+        .variable_declare_stmt => |variable_declare_stmt| {
             self.debugPrint("Evaluating variable declaration statement...\n", .{});
-            if (variable_declare.initializer) |initializer| {
+            if (variable_declare_stmt.initializer) |initializer| {
                 const eval = self.evaluate(allocator, initializer);
                 const value: Value = eval: switch (eval) {
                     .expr_value => |expr_value| {
@@ -415,20 +439,20 @@ fn evaluateStatement(
                     },
                 };
 
-                self.env.*.define(variable_declare.name, value) catch {
+                self.env.*.define(variable_declare_stmt.name, value) catch {
                     report.runtimeError("Variable declaration failed for unknown reason.");
                 };
             } else {
-                self.env.*.define(variable_declare.name, Value{ .nil = true }) catch {
+                self.env.*.define(variable_declare_stmt.name, Value{ .nil = true }) catch {
                     report.runtimeError("Variable declaration failed for unknown reason.");
                 };
             }
             return .{ .no_return = true };
         },
 
-        .func_declare_stmt => |func_declare| {
+        .func_declare_stmt => |func_declare_stmt| {
             var name: []const u8 = undefined;
-            if (func_declare.name.lexeme) |lexeme| {
+            if (func_declare_stmt.name.lexeme) |lexeme| {
                 name = lexeme;
             } else {
                 report.runtimeError("Unable to declare a function without proper identifier name.");
@@ -437,13 +461,10 @@ fn evaluateStatement(
 
             self.debugPrint("Evaluating the function declaration statement '{s}'...\n", .{ name });
 
-            const function = LoxFunction.init(&func_declare);
+            const function = LoxFunction.init(func_declare_stmt);
             self.env.*.defineFunction(name, function) catch {
                 report.runtimeError("Function declaration failed for unknown reason.");
             };
-            if (self.debug_env) {
-                self.env.*.display(allocator);
-            }
             return .{ .no_return = true };
         },
 
@@ -597,10 +618,7 @@ fn evaluate(
 
             switch (env_value) {
                 .value => |value| {
-                    self.debugPrint("  Env Value: {s}\n", .{ value.toString(allocator) });
-                    return .{
-                        .expr_value = value,
-                    };
+                    return .{ .expr_value = value };
                 },
                 else => {
                     report.runtimeError("Invalid identifier access.");
@@ -924,7 +942,7 @@ fn evaluateFunctionCallExpr(
                 .value => |value| {
                     report.runtimeErrorAlloc(allocator, 
                         "The value '{s}' is not callable as a function.", .{
-                            value.toString(allocator)
+                            value.toString(allocator, true)
                         });
                     return .{ .error_return = true };
                 }
@@ -955,7 +973,7 @@ fn evaluateFunctionArguments(
                 continue;
             }
 
-            self.debugPrint("   -> {s}\n", .{ arg_value.toString(allocator) });
+            self.debugPrint("   -> {s}\n", .{ arg_value.toString(allocator, true) });
             evaluated_args.append(arg_value) catch unreachable;
         }
         return evaluated_args;
@@ -973,19 +991,23 @@ pub fn executeBlock(
     const block_env = Environment.init(allocator, self.env);
     defer allocator.destroy(block_env);
 
-    self.debugPrint("  >> executeBlock():\n", .{});
     self.env = block_env;
 
     var block_eval: EvaluateResult = undefined;
     control: for (statements.items) |stmt| {
         block_eval = self.evaluateStatement(allocator, stmt);
 
+        if (self.debug_env) {
+            self.env.*.display();
+        }
+
         switch (block_eval) {
             .func_return => |func_return| {
                 self.debugPrint("  >> Statement received a 'func_return', " ++ 
                     "likely produced by a `return_stmt`. " ++
                     "(Return value: {s}, caller_depth: {})\n", .{
-                        func_return.value.toString(allocator), func_return.caller_depth
+                        func_return.value.toString(allocator, true), 
+                        func_return.caller_depth
                     });
                 break :control;
             },
@@ -999,16 +1021,8 @@ pub fn executeBlock(
             },
         }
     }
+
     self.env = parent_env;
-
-    self.debugPrint("  >> caller_depth: {}, current_depth: {}\n", .{ 
-        self.caller_depth, self.current_depth
-    });
-    self.debugPrint("  >> executeBlock() done!\n", .{});
-
-    if (self.debug_env) {
-        self.env.*.display(allocator);
-    }
 
     self.current_depth -= 1;
     return block_eval;
@@ -1022,19 +1036,23 @@ pub fn executeBlockEnv(
     self.current_depth += 1;
     const parent_env = self.env;
 
-    self.debugPrint("  >> executeBlockEnv():\n", .{});
     self.env = with_env;
 
     var block_eval: EvaluateResult = undefined;
     control: for (statements.items) |stmt| {
         block_eval = self.evaluateStatement(allocator, stmt);
 
+        if (self.debug_env) {
+            self.env.*.display();
+        }
+
         switch (block_eval) {
             .func_return => |func_return| {
                 self.debugPrint("  >> Statement received a `func_return`, " ++ 
                     "likely produced by a `return_stmt`. " ++
                     "(Return value: {s}, caller_depth: {})\n", .{
-                        func_return.value.toString(allocator), func_return.caller_depth
+                        func_return.value.toString(allocator, true), 
+                        func_return.caller_depth
                     });
                 break :control;
             },
@@ -1048,16 +1066,8 @@ pub fn executeBlockEnv(
             }
         }
     }
-    self.env = parent_env;
     
-    self.debugPrint("  >> caller_depth: {}, current_depth: {}\n", .{ 
-        self.caller_depth, self.current_depth
-    });
-    self.debugPrint("  >> executeBlockEnv() done!\n", .{});
-
-    if (self.debug_env) {
-        self.env.*.display(allocator);
-    }
+    self.env = parent_env;
 
     self.current_depth -= 1;
     return block_eval;
@@ -1067,14 +1077,14 @@ pub const EnvValue = union(enum) {
     value: Value,
     function: LoxFunction,
 
-    fn toString(self: EnvValue, allocator: Allocator) []const u8 {
+    fn display(self: EnvValue) void {
         switch (self) {
             .value => |value| {
-                return value.toString(allocator);
+                value.display(true);
             },
             .function => |function| {
-                return function.toString(allocator);
-            },
+                function.display();
+            }
         }
     }
 };
@@ -1147,20 +1157,23 @@ pub const Environment = struct {
         }
     }
 
-    fn display(self: *const Environment, allocator: Allocator) void {
+    fn display(self: *const Environment) void {
         debug.print("[Env: ", .{});
         var iter = self.values.iterator();
         while (iter.next()) |entry| {
-            const key = entry.key_ptr.*;
-            const value = entry.value_ptr.*;
-            debug.print("{s}={s} | ", .{ key, value.toString(allocator) });
+            const key: []const u8 = entry.key_ptr.*;
+            const value: EnvValue = entry.value_ptr.*;
+            debug.print("{s}=", .{ key });
+            value.display();
+            debug.print(" | ", .{});
         }
         debug.print("]", .{});
+
         if (self.enclosing) |enclosing| {
             debug.print(" ", .{});
-            enclosing.*.display(allocator);
+            enclosing.*.display();
         } else {
-            debug.print(" [-]\n", .{});
+             debug.print("\n", .{});
         }
     }
 };

@@ -14,16 +14,16 @@ const EvaluateResult = @import("interpreter.zig").EvaluateResult;
 // 3) 'class definitions' can be called to construct a new instance
 
 pub const LoxFunction = struct {
-    declaration: *const ast.FunctionDeclareStmt,
+    declaration: ast.FunctionDeclareStmt,
 
-    pub fn init(func_declare_stmt: *const ast.FunctionDeclareStmt) LoxFunction {
+    pub fn init(func_declare_stmt: ast.FunctionDeclareStmt) LoxFunction {
         return .{
             .declaration = func_declare_stmt,
         };
     }
 
     pub fn arity(self: LoxFunction) usize {
-        return if (self.declaration.*.params) |params| params.items.len else 0;
+        return if (self.declaration.params) |params| params.items.len else 0;
     }
 
     pub fn call(
@@ -31,10 +31,12 @@ pub const LoxFunction = struct {
         interpreter: *Interpreter, 
         func_args: ?std.ArrayList(Value)
     ) EvaluateResult {
+        // NOTE(yemon): using the `global_env` as the parent env when calling the function
+        // is probably not right...
         const func_env = Environment.init(allocator, interpreter.global_env);
         defer allocator.destroy(func_env);
 
-        if (self.declaration.*.params != null and func_args != null) {
+        if (self.declaration.params != null and func_args != null) {
             const params = self.declaration.params.?;
             const args = func_args.?;
 
@@ -47,15 +49,13 @@ pub const LoxFunction = struct {
         }
 
         const func_eval_result: EvaluateResult = interpreter.executeBlockEnv(
-            allocator, self.declaration.*.body, func_env
+            allocator, self.declaration.body, func_env
         );
         return func_eval_result;
     }
 
-    pub fn toString(self: LoxFunction, allocator: Allocator) []const u8 {
+    pub fn display(self: LoxFunction) void {
         const name = if (self.declaration.name.lexeme) |lexeme| lexeme else "NA";
-        const str = fmt.allocPrint(allocator, "<fun {s} {}>", .{ name, self.arity() }) 
-            catch "-";
-        return str;
+        debug.print("<fun {s}>", .{ name });
     }
 };
