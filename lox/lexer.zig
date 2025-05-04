@@ -124,9 +124,11 @@ pub const Scanner = struct {
             };
         }
 
-        const last_token = self.tokens.items[self.tokens.items.len-1];
-        if (is_repl and last_token.token_type != .Semicolon) {
-            self.addNonLexemeToken(.Semicolon);
+        if (self.tokens.items.len >= 1) {
+            const last_token = self.tokens.items[self.tokens.items.len-1];
+            if (is_repl and last_token.token_type != .Semicolon) {
+                self.addNonLexemeToken(.Semicolon);
+            }
         }
         self.addNonLexemeToken(.Eof);
     }
