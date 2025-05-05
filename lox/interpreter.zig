@@ -370,7 +370,7 @@ fn evaluateStatement(
         .print_stmt => |print_stmt| {
             self.debugPrint("Evaluating print statement...\n", .{});
             const eval = self.evaluate(allocator, print_stmt.expr);
-            const value = eval.getExprValue();
+            const value = eval.getExprOrFuncReturnValue();
             debug.print("{s}\n", .{ value.toString(allocator, false) });
             return .{ .no_return = true };
         },
@@ -378,7 +378,7 @@ fn evaluateStatement(
         .if_stmt => |if_stmt| {
             self.debugPrint("Evaluating if statement...\n", .{});
             const eval = self.evaluate(allocator, if_stmt.condition);
-            const condition = eval.getExprValue();
+            const condition = eval.getExprOrFuncReturnValue();
 
             var if_eval_result: EvaluateResult = undefined;
             if (condition.isTruthy()) {
@@ -399,12 +399,12 @@ fn evaluateStatement(
         .while_stmt => |while_stmt| {
             self.debugPrint("Evaluating while statement block...\n", .{});
             var eval = self.evaluate(allocator, while_stmt.condition);
-            var condition = eval.getExprValue();
+            var condition = eval.getExprOrFuncReturnValue();
 
             const loop_eval_result: EvaluateResult = loop: while (condition.isTruthy()) {
                 const eval_result = self.evaluateStatement(allocator, while_stmt.body);
                 eval = self.evaluate(allocator, while_stmt.condition);
-                condition = eval.getExprValue();
+                condition = eval.getExprOrFuncReturnValue();
 
                 // NOTE(yemon): there's no early `break` from the loops... yet
                 // so only the function return can break the loop body early entirely
@@ -474,7 +474,7 @@ fn evaluateStatement(
             });
             if (return_stmt.expr) |expr| {
                 const return_eval = self.evaluate(allocator, expr);
-                const value = return_eval.getExprValue();
+                const value = return_eval.getExprOrFuncReturnValue();
                 return .{ 
                     .func_return = .{
                         .value = value,
@@ -505,10 +505,13 @@ pub const EvaluateResult = union(enum) {
     error_return: bool,  // NOTE(yemon): should this carry additional info, like an err msg?
     no_return: bool,
 
-    fn getExprValue(self: EvaluateResult) Value {
+    fn getExprOrFuncReturnValue(self: EvaluateResult) Value {
         switch (self) {
             .expr_value => |value| {
                 return value;
+            },
+            .func_return => |func_return| {
+                return func_return.value;
             },
             else => {
                 return Value{ .nil = true };
@@ -658,7 +661,7 @@ fn evaluateAssignmentExpr(
     assignment: *const ast.AssignmentExpr
 ) !void {
     const eval = self.evaluate(allocator, assignment.value);
-    const value = eval.getExprValue();
+    const value = eval.getExprOrFuncReturnValue();
 
     try self.env.*.assign(assignment.name, value);
 }
@@ -668,10 +671,10 @@ fn evaluateBinaryExpr(
     binary: *const ast.BinaryExpr
 ) Value {
     const left_eval = self.evaluate(allocator, binary.left);
-    const left_value = left_eval.getExprValue();
+    const left_value = left_eval.getExprOrFuncReturnValue();
 
     const right_eval = self.evaluate(allocator, binary.right);
-    const right_value = right_eval.getExprValue();
+    const right_value = right_eval.getExprOrFuncReturnValue();
 
     switch (binary.optr.token_type) { 
         .Minus => {
@@ -832,7 +835,7 @@ fn evaluateLogicalExpr(
     logical: *const ast.LogicalExpr
 ) Value {
     const left_eval = self.evaluate(allocator, logical.left);
-    const left_value = left_eval.getExprValue();
+    const left_value = left_eval.getExprOrFuncReturnValue();
 
     if (logical.optr.token_type == .Or) {
         if (left_value.isTruthy()) {
@@ -845,7 +848,7 @@ fn evaluateLogicalExpr(
     }
 
     const right_eval = self.evaluate(allocator, logical.right);
-    return right_eval.getExprValue();
+    return right_eval.getExprOrFuncReturnValue();
 }
 
 fn evaluateUnaryExpr(
@@ -853,7 +856,7 @@ fn evaluateUnaryExpr(
     unary: *const ast.UnaryExpr
 ) Value {
     const eval = evaluate(self, allocator, unary.right);
-    const value = eval.getExprValue();
+    const value = eval.getExprOrFuncReturnValue();
 
     switch (unary.optr.token_type) {
         .Minus => {
@@ -966,7 +969,7 @@ fn evaluateFunctionArguments(
         var evaluated_args = std.ArrayList(Value).init(allocator);
         for (args.items) |arg| {
             const eval = self.evaluate(allocator, arg);
-            const arg_value = eval.getExprValue();
+            const arg_value = eval.getExprOrFuncReturnValue();
             if (arg_value.isNil()) {
                 continue;
             }
