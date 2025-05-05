@@ -692,6 +692,43 @@ fn evaluateBinaryExpr(
             return result;
         },
 
+        .Plus => {
+            switch (left_value) {
+                .integer, .double => {
+                    if (!left_value.isNumber() or !right_value.isNumber()) {
+                        report.arithmeticError(allocator, "Addition has to be between numbers.", 
+                            left_value.getTypeName(), right_value.getTypeName()
+                        );
+                        return Value{ .nil = true };
+                    }
+
+                    const result = left_value.doArithmetic(right_value, .addition)
+                        catch {
+                            report.arithmeticError(allocator, "Unable to do addition.",
+                                left_value.getTypeName(), right_value.getTypeName()
+                            );
+                            return Value{ .nil = true };
+                        };
+                    return result;
+                },
+                .string => |left_string| {
+                    switch (right_value) {
+                        .string => |right_string| {
+                            return concatStrings(allocator, left_string, right_string);
+                        },
+                        else => {
+                            const right_string = right_value.toString(allocator, false);
+                            return concatStrings(allocator, left_string, @constCast(right_string));
+                        }
+                    }
+                },
+                else => {
+                    report.runtimeError("Invalid operand types to do an addition.");
+                    return Value{ .nil = true };
+                }
+            }
+        },
+
         .Slash => {
             if (!left_value.isNumber() or !right_value.isNumber()) {
                 report.arithmeticError(allocator, "Division has to be between numbers.", 
@@ -726,45 +763,6 @@ fn evaluateBinaryExpr(
                     return Value{ .nil = true };
                 };
             return result;
-        },
-
-        .Plus => {
-            switch (left_value) {
-                .integer, .double => {
-                    if (!left_value.isNumber() or !right_value.isNumber()) {
-                        report.arithmeticError(allocator, "Addition has to be between numbers.", 
-                            left_value.getTypeName(), right_value.getTypeName()
-                        );
-                        return Value{ .nil = true };
-                    }
-
-                    const result = left_value.doArithmetic(right_value, .addition)
-                        catch {
-                            report.arithmeticError(allocator, "Unable to do addition.",
-                                left_value.getTypeName(), right_value.getTypeName()
-                            );
-                            return Value{ .nil = true };
-                        };
-                    return result;
-                },
-                .string => |left_string| {
-                    switch (right_value) {
-                        .string => |right_string| {
-                            return concatStrings(allocator, left_string, right_string);
-                        },
-                        else => {
-                            report.runtimeError("A string can only be concated with " ++
-                                "another string."
-                            );
-                            return Value{ .string = left_string };
-                        }
-                    }
-                },
-                else => {
-                    report.runtimeError("Invalid operand types to do an addition.");
-                    return Value{ .nil = true };
-                }
-            }
         },
 
         .BangEqual => {
