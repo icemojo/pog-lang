@@ -31,9 +31,7 @@ pub const LoxFunction = struct {
         interpreter: *Interpreter, 
         func_args: ?std.ArrayList(Value)
     ) EvaluateResult {
-        // NOTE(yemon): using the `global_env` as the parent env when calling the function
-        // is probably not right...
-        const func_env = Environment.init(allocator, interpreter.global_env);
+        const func_env = Environment.init(allocator, interpreter.env);
         defer allocator.destroy(func_env);
 
         if (self.declaration.params != null and func_args != null) {
