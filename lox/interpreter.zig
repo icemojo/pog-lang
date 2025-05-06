@@ -308,6 +308,8 @@ const RuntimeError = error {
     UndefinedIdentifier,
     AlreadyDefinedVariable,
     AlreadyDefinedFunction,
+    DefinitionFailed,
+    EvaluationFailed,
 };
 
 const Self = @This();
@@ -370,6 +372,9 @@ fn evaluateStatement(
         .print_stmt => |print_stmt| {
             self.debugPrint("Evaluating print statement...\n", .{});
             const eval = self.evaluate(allocator, print_stmt.expr);
+            if (eval.isErrorReturn()) {
+                return eval;
+            }
             const value = eval.getExprOrFuncReturnValue();
             debug.print("{s}\n", .{ value.toString(allocator, false) });
             return .{ .no_return = true };
@@ -378,6 +383,9 @@ fn evaluateStatement(
         .if_stmt => |if_stmt| {
             self.debugPrint("Evaluating if statement...\n", .{});
             const eval = self.evaluate(allocator, if_stmt.condition);
+            if (eval.isErrorReturn()) {
+                return eval;
+            }
             const condition = eval.getExprOrFuncReturnValue();
 
             var if_eval_result: EvaluateResult = undefined;
@@ -399,11 +407,17 @@ fn evaluateStatement(
         .while_stmt => |while_stmt| {
             self.debugPrint("Evaluating while statement block...\n", .{});
             var eval = self.evaluate(allocator, while_stmt.condition);
+            if (eval.isErrorReturn()) {
+                return eval;
+            }
             var condition = eval.getExprOrFuncReturnValue();
 
             const loop_eval_result: EvaluateResult = loop: while (condition.isTruthy()) {
                 const eval_result = self.evaluateStatement(allocator, while_stmt.body);
                 eval = self.evaluate(allocator, while_stmt.condition);
+                if (eval.isErrorReturn()) {
+                    return eval;
+                }
                 condition = eval.getExprOrFuncReturnValue();
 
                 // NOTE(yemon): there's no early `break` from the loops... yet
@@ -427,6 +441,10 @@ fn evaluateStatement(
             self.debugPrint("Evaluating variable declaration statement...\n", .{});
             if (variable_declare_stmt.initializer) |initializer| {
                 const eval = self.evaluate(allocator, initializer);
+                if (eval.isErrorReturn()) {
+                    return eval;
+                }
+
                 const value: Value = eval: switch (eval) {
                     .expr_value => |expr_value| {
                         break :eval expr_value;
@@ -474,6 +492,9 @@ fn evaluateStatement(
             });
             if (return_stmt.expr) |expr| {
                 const return_eval = self.evaluate(allocator, expr);
+                if (return_eval.isErrorReturn()) {
+                    return return_eval;
+                }
                 const value = return_eval.getExprOrFuncReturnValue();
                 return .{ 
                     .func_return = .{
@@ -561,38 +582,43 @@ fn evaluate(
     switch (expr.*) {
         .assign => |assignment| {
             self.debugPrint("  Evaluating assignment expression...\n", .{});
-            self.evaluateAssignmentExpr(allocator, &assignment) catch {
-                report.runtimeErrorAlloc(allocator,
-                    "Unable to assign value to a variable '{s}'.", .{
-                        assignment.name
-                    });
-                return .{ .error_return = true };
+            self.evaluateAssignmentExpr(allocator, &assignment) catch |err| switch (err) {
+                RuntimeError.EvaluationFailed => {
+                    return .{ .error_return = true };
+                },
+                else => {
+                    report.runtimeErrorAlloc(allocator,
+                        "Unable to assign value to an undefined variable '{s}'.", .{
+                            assignment.name
+                        });
+                    return .{ .error_return = true };
+                },
             };
             return .{ .no_return = true };
         },
 
         .binary => |binary| {
             self.debugPrint("  Evaluating binary expression...\n", .{});
-            const value = self.evaluateBinaryExpr(allocator, &binary);
-            return .{
-                .expr_value = value,
+            const value = self.evaluateBinaryExpr(allocator, &binary) catch {
+                return .{ .error_return = true };
             };
+            return .{ .expr_value = value };
         },
 
         .logical => |logical| {
             self.debugPrint("  Evaluating logical expression...\n", .{});
-            const value = self.evaluateLogicalExpr(allocator, &logical);
-            return .{
-                .expr_value = value,
+            const value = self.evaluateLogicalExpr(allocator, &logical) catch {
+                return .{ .error_return = true };
             };
+            return .{ .expr_value = value };
         },
 
         .unary => |unary| {
             self.debugPrint("  Evaluating unary expression...\n", .{});
-            const value = self.evaluateUnaryExpr(allocator, &unary);
-            return .{
-                .expr_value = value,
+            const value = self.evaluateUnaryExpr(allocator, &unary) catch {
+                return .{ .error_return = true };
             };
+            return .{ .expr_value = value };
         },
 
         .grouping => |group| {
@@ -603,9 +629,7 @@ fn evaluate(
         .literal => |literal| {
             self.debugPrint("  Evaluating literal expression...\n", .{});
             const value = literal.evaluate(allocator);
-            return .{
-                .expr_value = value,
-            };
+            return .{ .expr_value = value };
         },
 
         .variable => |variable| {
@@ -614,9 +638,7 @@ fn evaluate(
 
             const env_value = self.env.*.getValue(name) catch {
                 report.runtimeErrorAlloc(allocator, "Undefined variable '{s}'.", .{ name });
-                return .{
-                    .expr_value = Value{ .nil = true },
-                };
+                return .{ .error_return = true };
             };
 
             switch (env_value) {
@@ -650,6 +672,7 @@ fn evaluate(
                 func_call.display(false);
                 debug.print("\n", .{});
             }
+            self.debugPrint("  func_eval_result: {s}\n", .{ @tagName(func_eval_result) });
 
             return func_eval_result;
         },
@@ -659,21 +682,28 @@ fn evaluate(
 fn evaluateAssignmentExpr(
     self: *Self, allocator: Allocator, 
     assignment: *const ast.AssignmentExpr
-) !void {
+) RuntimeError!void {
     const eval = self.evaluate(allocator, assignment.value);
-    const value = eval.getExprOrFuncReturnValue();
+    if (eval.isErrorReturn()) {
+        self.debugPrint("  Assignment expression evaluation resulted in error.\n", .{});
+        return RuntimeError.EvaluationFailed;
+    }
 
+    const value = eval.getExprOrFuncReturnValue();
     try self.env.*.assign(assignment.name, value);
 }
 
 fn evaluateBinaryExpr(
     self: *Self, allocator: Allocator, 
     binary: *const ast.BinaryExpr
-) Value {
+) RuntimeError!Value {
     const left_eval = self.evaluate(allocator, binary.left);
-    const left_value = left_eval.getExprOrFuncReturnValue();
-
     const right_eval = self.evaluate(allocator, binary.right);
+    if (left_eval.isErrorReturn() or right_eval.isErrorReturn()) {
+        return RuntimeError.EvaluationFailed;
+    }
+
+    const left_value = left_eval.getExprOrFuncReturnValue();
     const right_value = right_eval.getExprOrFuncReturnValue();
 
     switch (binary.optr.token_type) { 
@@ -833,8 +863,11 @@ fn evaluateBinaryExpr(
 fn evaluateLogicalExpr(
     self: *Self, allocator: Allocator, 
     logical: *const ast.LogicalExpr
-) Value {
+) RuntimeError!Value {
     const left_eval = self.evaluate(allocator, logical.left);
+    if (left_eval.isErrorReturn()) {
+        return RuntimeError.EvaluationFailed;
+    }
     const left_value = left_eval.getExprOrFuncReturnValue();
 
     if (logical.optr.token_type == .Or) {
@@ -848,14 +881,20 @@ fn evaluateLogicalExpr(
     }
 
     const right_eval = self.evaluate(allocator, logical.right);
+    if (right_eval.isErrorReturn()) {
+        return RuntimeError.EvaluationFailed;
+    }
     return right_eval.getExprOrFuncReturnValue();
 }
 
 fn evaluateUnaryExpr(
     self: *Self, allocator: Allocator, 
     unary: *const ast.UnaryExpr
-) Value {
-    const eval = evaluate(self, allocator, unary.right);
+) RuntimeError!Value {
+    const eval = self.evaluate(allocator, unary.right);
+    if (eval.isErrorReturn()) {
+        return RuntimeError.EvaluationFailed;
+    }
     const value = eval.getExprOrFuncReturnValue();
 
     switch (unary.optr.token_type) {
@@ -1082,7 +1121,7 @@ pub fn executeBlockEnv(
             },
             .error_return => {
                 self.debugPrint("  >> Statement evaluation returned with an error. " ++ 
-                    "This should disrupt the entire execution altogether.", .{});
+                    "This should disrupt the entire execution altogether.\n", .{});
                 break :control;
             },
             .no_return, .expr_value => {
@@ -1152,9 +1191,9 @@ pub const Environment = struct {
                 return RuntimeError.UndefinedIdentifier;
             }
         }
-        try self.values.put(name, EnvValue{ 
+        self.values.put(name, EnvValue{ 
             .value = value,
-        });
+        }) catch return RuntimeError.DefinitionFailed;
     }
 
     fn getValue(self: *const Environment, name: []const u8) !EnvValue {
