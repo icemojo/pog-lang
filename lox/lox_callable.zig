@@ -56,4 +56,10 @@ pub const LoxFunction = struct {
         const name = if (self.declaration.name.lexeme) |lexeme| lexeme else "NA";
         debug.print("<fun {s} *{}>", .{ name, self.arity() });
     }
+
+    pub fn toString(self: LoxFunction, allocator: Allocator) []const u8 {
+        const name = if (self.declaration.name.lexeme) |lexeme| lexeme else "NA";
+        return std.fmt.allocPrint(allocator, "<fun {s} *{}>", .{ name, self.arity() })
+            catch "<fun ->";
+    }
 };

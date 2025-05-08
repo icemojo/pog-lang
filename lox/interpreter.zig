@@ -33,6 +33,7 @@ pub const Value = union(enum) {
     string: []u8,
     boolean: bool,
     nil: bool,
+    function: LoxFunction,
     // object: ??
 
     fn isTruthy(self: Value) bool {
@@ -79,6 +80,9 @@ pub const Value = union(enum) {
                 } else {
                     return ValueError.InvalidValueComparison;
                 }
+            },
+            .function => {
+                return ValueError.InvalidValueComparison;
             },
         }
     }
@@ -262,6 +266,9 @@ pub const Value = union(enum) {
             .nil => {
                 return "nil";
             },
+            .function => |it| {
+                return it.toString(allocator);
+            },
         }
     }
 
@@ -282,6 +289,9 @@ pub const Value = union(enum) {
             .nil => {
                 debug.print("nil", .{});
             },
+            .function => |it| {
+                it.display();
+            },
         }
     }
 
@@ -292,6 +302,7 @@ pub const Value = union(enum) {
             .string => "string",
             .boolean => "boolean",
             .nil => "nil",
+            .function => "function",
         };
     }
 };
@@ -636,19 +647,20 @@ fn evaluate(
             const name = variable.lexeme.?;
             self.debugPrint("  Evaluating variable expression '{s}'...\n", .{ name });
 
-            const env_value = self.env.*.getValue(name) catch {
+            const value = self.env.*.getValue(name) catch {
                 report.runtimeErrorAlloc(allocator, "Undefined variable '{s}'.", .{ name });
                 return .{ .error_return = true };
             };
 
-            switch (env_value) {
-                .value => |value| {
-                    return .{ .expr_value = value };
+            switch (value) {
+                .function => {
+                    // NOTE(yemon): A 'function' won't be accessible like a variable
+                    // for now. Might change later on when they're being treated as 1st class.
+                    report.runtimeError("Invalid identifier access.");
+                    return .{ .no_return = true };
                 },
                 else => {
-                    report.runtimeError("Invalid identifier access.");
-                    // NOTE(yemon): not sure about this yet!
-                    return .{ .no_return = true };
+                    return .{ .expr_value = value };
                 }
             }
         },
@@ -945,12 +957,12 @@ fn evaluateFunctionCallExpr(
     switch (callee) {
         .variable => |variable| {
             const name = variable.lexeme orelse unreachable;
-            const env_value = self.env.*.getValue(name) catch {
+            const value = self.env.*.getValue(name) catch {
                 report.runtimeErrorAlloc(allocator, "Undefined function '{s}'.", .{ name });
                 return .{ .error_return = true };
             };
 
-            switch (env_value) {
+            switch (value) {
                 .function => |lox_function| {
                     const evaluated_args = self.evaluateFunctionArguments(
                         allocator, func_call
@@ -979,10 +991,10 @@ fn evaluateFunctionCallExpr(
                     );
                     return func_eval_result;
                 },
-                .value => |value| {
+                else => {
                     report.runtimeErrorAlloc(allocator, 
-                        "The value '{s}' is not callable as a function.", .{
-                            value.toString(allocator, true)
+                        "The value of type '{s}' is not callable as a function.", .{
+                            @tagName(value)
                         });
                     return .{ .error_return = true };
                 }
@@ -1136,34 +1148,18 @@ pub fn executeBlockEnv(
     return block_eval;
 }
 
-pub const EnvValue = union(enum) {
-    value: Value,
-    function: LoxFunction,
-
-    fn display(self: EnvValue) void {
-        switch (self) {
-            .value => |value| {
-                value.display(true);
-            },
-            .function => |function| {
-                function.display();
-            }
-        }
-    }
-};
-
 // It's kinda rare in for language to have both the variables and function declarations
 // to NOT live in the same namespace. (e.g., Common Lisp). 
 // If the functions need to be "first-class citizens", they both have to exist 
 // in the same namespace.
 pub const Environment = struct {
     enclosing: ?*Environment,
-    values: std.StringHashMap(EnvValue),
+    values: std.StringHashMap(Value),
 
     pub fn init(allocator: Allocator, enclosing: ?*Environment) *Environment {
         const env = allocator.create(Environment) catch unreachable;
         env.*.enclosing = enclosing;
-        env.*.values = std.StringHashMap(EnvValue).init(allocator);
+        env.*.values = std.StringHashMap(Value).init(allocator);
         return env;
     }
 
@@ -1171,13 +1167,11 @@ pub const Environment = struct {
         if (self.alreadyDefined(name)) {
             return RuntimeError.AlreadyDefinedVariable;
         }
-        try self.values.put(name, EnvValue{
-            .value = value,
-        });
+        try self.values.put(name, value);
     }
 
     fn defineFunction(self: *Environment, name: []const u8, function: LoxFunction) !void {
-        try self.values.put(name, EnvValue{
+        try self.values.put(name, Value{
             .function = function,
         });
     }
@@ -1191,12 +1185,10 @@ pub const Environment = struct {
                 return RuntimeError.UndefinedIdentifier;
             }
         }
-        self.values.put(name, EnvValue{ 
-            .value = value,
-        }) catch return RuntimeError.DefinitionFailed;
+        self.values.put(name, value) catch return RuntimeError.DefinitionFailed;
     }
 
-    fn getValue(self: *const Environment, name: []const u8) !EnvValue {
+    fn getValue(self: *const Environment, name: []const u8) !Value {
         if (self.values.get(name)) |value| {
             return value;
         } else {
@@ -1222,9 +1214,9 @@ pub const Environment = struct {
         var iter = self.values.iterator();
         while (iter.next()) |entry| {
             const key: []const u8 = entry.key_ptr.*;
-            const value: EnvValue = entry.value_ptr.*;
+            const value: Value = entry.value_ptr.*;
             debug.print("{s}=", .{ key });
-            value.display();
+            value.display(true);
             debug.print(" | ", .{});
         }
         debug.print("]", .{});
