@@ -6,7 +6,7 @@ const eql       = @import("std").mem.eql;
 const Allocator = @import("std").mem.Allocator;
 
 const Token = @import("lexer.zig").Token;
-const Value = @import("interpreter.zig").Value;
+const Value = @import("value.zig").Value;
 
 pub const Expr = union(enum) {
     assign: AssignmentExpr,

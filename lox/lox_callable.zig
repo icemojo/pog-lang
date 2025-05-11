@@ -4,9 +4,9 @@ const debug = @import("std").debug;
 const Allocator = @import("std").mem.Allocator;
 
 const ast = @import("ast.zig");
+const Value = @import("value.zig").Value;
 const Interpreter = @import("interpreter.zig");
 const Environment = @import("interpreter.zig").Environment;
-const Value = @import("interpreter.zig").Value;
 const EvaluateResult = @import("interpreter.zig").EvaluateResult;
 
 // 1) free functions can be called
