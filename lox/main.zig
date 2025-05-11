@@ -37,16 +37,11 @@ pub fn main() void {
     interpreter.debug_env = options.show_env;
     // defer allocator.destroy(interpreter.env);
 
-    if (options.repl_start) {
+    if (options.input_file_path) |input_file_path| {
+        runFile(allocator, &interpreter, input_file_path, &options);
+    } else {
         var repl = Repl.init(&interpreter);
         repl.start(allocator, &options);
-    } else {
-        if (options.input_file_path) |input_file_path| {
-            runFile(allocator, &interpreter, input_file_path, &options);
-        } else {
-            debug.print("No script files provided in the command line as the first argument.\n", .{});
-            debug.print("(Use -h to print out the available options)\n", .{});
-        }
     }
 }
 
@@ -134,8 +129,9 @@ fn parse(
     allocator: Allocator, 
     source: []const u8, options: *const opt.Options
 ) ?std.ArrayList(*ast.Stmt) {
+    const is_repl = if (options.input_file_path == null) true else false;
     var scanner = lexer.Scanner.init(allocator, source, options.show_tokens);
-    scanner.startScanning(options.repl_start);
+    scanner.startScanning(is_repl);
 
     if (options.show_tokens) {
         for (scanner.tokens.items) |token| {
