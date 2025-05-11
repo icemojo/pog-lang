@@ -740,10 +740,16 @@ pub fn executeRepl(
     statements: std.ArrayList(*ast.Stmt)
 ) void {
     self.current_depth += 1;
+    defer self.current_depth -= 1;
 
     var eval: EvaluateResult = undefined;
-    control: for (statements.items) |stmt| {
+    control: for (statements.items, 0..) |stmt, idx| {
         eval = self.evaluateStatement(allocator, stmt);
+
+        if (idx == 0 and !eval.isErrorReturn()) {
+            const result = eval.getExprOrFuncReturnValue();
+            debug.print("{s}\n", .{ result.toString(allocator, false) });
+        }
 
         if (self.debug_env) {
             self.env.*.display();
@@ -754,8 +760,6 @@ pub fn executeRepl(
         // change later on...
         continue :control;
     }
-
-    self.current_depth -= 1;
 }
 
 pub fn executeBlock(
@@ -765,9 +769,13 @@ pub fn executeBlock(
     self.current_depth += 1;
     const parent_env = self.env;
     const block_env = Environment.init(allocator, self.env);
-    defer allocator.destroy(block_env);
-
     self.env = block_env;
+
+    defer {
+        self.env = parent_env;
+        allocator.destroy(block_env);
+        self.current_depth -= 1;
+    }
 
     var block_eval: EvaluateResult = undefined;
     control: for (statements.items) |stmt| {
@@ -798,9 +806,6 @@ pub fn executeBlock(
         }
     }
 
-    self.env = parent_env;
-
-    self.current_depth -= 1;
     return block_eval;
 }
 
@@ -811,8 +816,12 @@ pub fn executeBlockEnv(
 ) EvaluateResult {
     self.current_depth += 1;
     const parent_env = self.env;
-
     self.env = with_env;
+
+    defer {
+        self.env = parent_env;
+        self.current_depth -= 1;
+    }
 
     var block_eval: EvaluateResult = undefined;
     control: for (statements.items) |stmt| {
@@ -843,9 +852,6 @@ pub fn executeBlockEnv(
         }
     }
     
-    self.env = parent_env;
-
-    self.current_depth -= 1;
     return block_eval;
 }
 
