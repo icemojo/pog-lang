@@ -92,6 +92,55 @@ fn evaluateStatement(
             return .{ .no_return = true };
         },
 
+        .compound_stmt => |compound_stmt| {
+            self.debugPrint("Evaluating the compound statement...\n", .{});
+
+            const name = compound_stmt.identifier;
+            const value = self.env.*.getValue(name) catch {
+                report.runtimeErrorAlloc(
+                    allocator, 
+                    "Invalid identifier '{s}' for the compound statement target.", .{ name }
+                );
+                return .{ .error_return = true };
+            };
+
+            const allow_arithmetic = allow: switch (value) {
+                .integer, .double => break :allow true,
+                else => break :allow false,
+            };
+            if (!allow_arithmetic) {
+                report.runtimeErrorAlloc(allocator, 
+                    "Unable to do an arithmetic operation on '{s}'.", .{ @tagName(value) }
+                );
+                return .{ .error_return = true };
+            }
+
+            const right_eval = self.evaluate(allocator, compound_stmt.expr);
+            if (right_eval.isErrorReturn()) {
+                return right_eval;
+            }
+
+            const right_value = right_eval.getExprOrFuncReturnValue();
+            const op_msg = std.fmt.allocPrint(allocator, "Unable to do {s}.", .{ 
+                    compound_stmt.optr.toString()
+                }) catch {
+                    return .{ .error_return = true };
+                };
+            defer allocator.free(op_msg);
+
+            const result = value.doArithmetic(right_value, compound_stmt.optr) catch {
+                report.runtimeErrorAlloc(allocator, "Unable to do {s}.", .{
+                    compound_stmt.optr.toString()
+                });
+                return .{ .error_return = true };
+            };
+
+            self.env.*.assign(name, result) catch {
+                return .{ .error_return = true };
+            };
+            return .{ .no_return = true };
+        },
+
         .if_stmt => |if_stmt| {
             self.debugPrint("Evaluating if statement...\n", .{});
             const eval = self.evaluate(allocator, if_stmt.condition);
@@ -301,7 +350,7 @@ fn evaluate(
                 else => {
                     report.runtimeErrorAlloc(allocator,
                         "Unable to assign value to an undefined variable '{s}'.", .{
-                            assignment.name
+                            assignment.identifier
                         });
                     return .{ .error_return = true };
                 },
@@ -403,7 +452,7 @@ fn evaluateAssignmentExpr(
     }
 
     const value = eval.getExprOrFuncReturnValue();
-    try self.env.*.assign(assignment.name, value);
+    try self.env.*.assign(assignment.identifier, value);
 }
 
 fn evaluateBinaryExpr(

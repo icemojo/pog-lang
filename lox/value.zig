@@ -4,11 +4,29 @@ const Allocator = @import("std").mem.Allocator;
 
 const LoxFunction = @import("lox_callable.zig").LoxFunction;
 
-const ArithmeticOp = enum {
+pub const ArithmeticOp = enum {
     substract,
     divide,
     multiply,
     addition,
+
+    pub fn display(self: ArithmeticOp) void {
+        switch (self) {
+            .substract => debug.print("-=", .{}),
+            .divide => debug.print("/=", .{}),
+            .multiply => debug.print("*=", .{}),
+            .addition => debug.print("+=", .{}),
+        }
+    }
+
+    pub fn toString(self: ArithmeticOp) []const u8 {
+        return switch (self) {
+            .substract => "substraction assignment",
+            .divide => "division assignment",
+            .multiply => "multiplication assignment",
+            .addition => "addition assignment",
+        };
+    }
 };
 
 const ComparisonOp = enum {

@@ -22,6 +22,7 @@ pub fn runtimeError(comptime message: []const u8) void {
 pub fn runtimeErrorAlloc(allocator: Allocator, comptime message: []const u8, args: anytype) void {
     const msg = std.fmt.allocPrint(allocator, message, args) 
         catch "Runtime error occured";
+    defer allocator.free(msg);
     // runtimeError(msg);
     debug.print("[ERR] {s}\n", .{ msg });
 }
@@ -36,6 +37,7 @@ pub fn arithmeticError(
 
     const msg = std.fmt.allocPrint(allocator, msg_fmt, .{ lhs_name, rhs_name }) 
         catch invalid_msg;
+    defer allocator.free(msg);
     // runtimeError(msg);
     debug.print("[ERR] {s}\n", .{ msg });
 }

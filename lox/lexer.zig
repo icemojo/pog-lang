@@ -17,6 +17,12 @@ pub const TokenType = enum {
     Slash,
     Star,
 
+    // compound operators
+    PlusEqual,
+    MinusEqual,
+    StarEqual,
+    SlashEqual,
+
     // one or two character tokens
     Bang,
     BangEqual,
@@ -153,13 +159,25 @@ pub const Scanner = struct {
                     self.addNonLexemeToken(.Comma);
                 },
                 '-' => {
-                    self.addLexemeToken(.Minus, "-");
+                    if (self.advanceIfMatched('=')) {
+                        self.addLexemeToken(.MinusEqual, "-=");
+                    } else {
+                        self.addLexemeToken(.Minus, "-");
+                    }
                 },
                 '+' => {
-                    self.addLexemeToken(.Plus, "+");
+                    if (self.advanceIfMatched('=')) {
+                        self.addLexemeToken(.PlusEqual, "+=");
+                    } else {
+                        self.addLexemeToken(.Plus, "+");
+                    }
                 },
                 '*' => {
-                    self.addLexemeToken(.Star, "*");
+                    if (self.advanceIfMatched('=')) {
+                        self.addLexemeToken(.StarEqual, "*=");
+                    } else {
+                        self.addLexemeToken(.Star, "*");
+                    }
                 },
                 ';' => {
                     self.addNonLexemeToken(.Semicolon);
@@ -232,6 +250,8 @@ pub const Scanner = struct {
                             }
                             _ = self.advance();
                         }
+                    } else if (self.advanceIfMatched('=')) {
+                        self.addLexemeToken(.SlashEqual, "/=");
                     } else {
                         self.addLexemeToken(.Slash, "/");
                     }
