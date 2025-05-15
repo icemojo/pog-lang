@@ -219,7 +219,7 @@ fn statement(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
             .block_stmt = block,
         };
         return stmt;
-    } else if (self.advanceIfMatched(.Identifier)) {
+    } else if (self.isCompoundStmt()) {
         return try self.compoundStmt(allocator);
     } else {
         return try self.expressionStmt(allocator);
@@ -403,10 +403,22 @@ fn blockStmts(self: *Self, allocator: Allocator) ParserError!std.ArrayList(*ast.
     return statements;
 }
 
-fn compoundStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
-    self.debugPrint("Trying to identify the compound statement...\n", .{});
+fn isCompoundStmt(self: *const Self) bool {
+    const last = self.tokens.*.items.len-1;
+    if (self.current <= last-1) {
+        const peek1 = self.tokens.*.items[self.current];
+        const peek2 = self.tokens.*.items[self.current+1];
+        return peek1.token_type == .Identifier and peek2.isCompoundTokenType();
+    } else return false;
+}
 
-    const identifier = self.previous().?;
+fn compoundStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
+    self.debugPrint("Seems like a compound statement...\n", .{});
+
+    // NOTE(yemon): `advance()` call should not fail here since the `isCompoundStmt()`
+    // check has already been passed.
+    const identifier = self.peek();
+
     var name: []u8 = undefined;
     if (identifier.lexeme) |lexeme| {
         name = @constCast(lexeme);
@@ -416,6 +428,7 @@ fn compoundStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
         );
         return ParserError.InvalidStatementComposition;
     }
+    _ = self.advance();
 
     const optr_token = self.peek();
     const optr: ?ArithmeticOp = op: switch (optr_token.token_type) {

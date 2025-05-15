@@ -455,6 +455,7 @@ const CompoundStmt = struct {
     fn display(self: *const CompoundStmt) void {
         debug.print("{s} ", .{ self.identifier });
         self.optr.display();
+        debug.print(" ", .{});
         self.expr.*.display(false);
         debug.print("\n", .{});
     }

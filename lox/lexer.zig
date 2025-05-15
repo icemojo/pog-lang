@@ -80,6 +80,13 @@ pub const Token = struct {
         };
     }
 
+    pub fn isCompoundTokenType(self: *const Token) bool {
+        return switch (self.token_type) {
+            .PlusEqual, .MinusEqual, .StarEqual, .SlashEqual => true,
+            else => false,
+        };
+    }
+
     pub fn display(self: *const Token) void {
         debug.print("[{}] Token ({}", .{ self.line, self.token_type });
         if (self.lexeme) |lexeme| {
