@@ -200,6 +200,7 @@ fn evaluateStatement(
 
         .variable_declare_stmt => |variable_declare_stmt| {
             self.debugPrint("Evaluating variable declaration statement...\n", .{});
+            const name = variable_declare_stmt.name;
             if (variable_declare_stmt.initializer) |initializer| {
                 const eval = self.evaluate(allocator, initializer);
                 if (eval.isErrorReturn()) {
@@ -218,12 +219,32 @@ fn evaluateStatement(
                     },
                 };
 
-                self.env.*.define(variable_declare_stmt.name, value) catch {
-                    report.runtimeError("Variable declaration failed for unknown reason.");
+                self.env.*.define(name, value) catch |err| {
+                    switch (err) {
+                        RuntimeError.AlreadyDefinedVariable => {
+                            report.runtimeErrorAlloc(allocator, 
+                                "Variable identifier of name '{s}' already exists.", .{ name }
+                            );
+                        },
+                        else => {
+                            report.runtimeError("Variable declaration failed for unknown reason.");
+                        },
+                    }
+                    return .{ .error_return = true };
                 };
             } else {
-                self.env.*.define(variable_declare_stmt.name, Value{ .nil = true }) catch {
-                    report.runtimeError("Variable declaration failed for unknown reason.");
+                self.env.*.define(name, Value{ .nil = true }) catch |err| {
+                    switch (err) {
+                        RuntimeError.AlreadyDefinedVariable => {
+                            report.runtimeErrorAlloc(allocator, 
+                                "Variable identifier of name '{s}' already exists.", .{ name }
+                            );
+                        },
+                        else => {
+                            report.runtimeError("Variable declaration failed for unknown reason.");
+                        },
+                    }
+                    return .{ .error_return = true };
                 };
             }
             return .{ .no_return = true };
