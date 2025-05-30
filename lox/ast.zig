@@ -6,7 +6,8 @@ const eql       = @import("std").mem.eql;
 const Allocator = @import("std").mem.Allocator;
 
 const Token = @import("lexer.zig").Token;
-const Value = @import("interpreter.zig").Value;
+const Value = @import("value.zig").Value;
+const ArithmeticOp = @import("value.zig").ArithmeticOp;
 
 pub const Expr = union(enum) {
     assign: AssignmentExpr,
@@ -68,31 +69,42 @@ pub const Expr = union(enum) {
     }
 };
 
+// NOTE(yemon): In the grand scheme of things, this error variation *does not* matter at all.
+// What the caller (the `parser`) actually cares about is that expression allocation has failed.
+// That's it.
+pub const AllocError = error {
+    StringAllocFailed,
+    OutOfMemory
+};
+
 pub const AssignmentExpr = struct {
-    name: []u8,
+    identifier: []u8,
     value: *Expr,
 
     fn display(self: *const AssignmentExpr, line_break: bool) void {
-        debug.print("{s} = ", .{ self.name });
+        debug.print("{s} = ", .{ self.identifier });
         self.value.*.display(line_break);
     }
 };
 
 pub fn createAssignmentExpr(allocator: Allocator, variable: Token, value: *Expr) AllocError!*Expr {
     if (variable.lexeme) |lexeme| {
-        const target_name = try allocator.alloc(u8, lexeme.len);
-        @memcpy(target_name, lexeme);
+        const name = allocator.alloc(u8, lexeme.len) catch
+            return AllocError.StringAllocFailed;
+        @memcpy(name, lexeme);
+        errdefer allocator.free(name);
 
-        const expr = try allocator.create(Expr);
+        const expr = allocator.create(Expr) catch
+            return AllocError.OutOfMemory;
         expr.* = Expr{
             .assign = AssignmentExpr{
-                .name = target_name,
+                .identifier = name,
                 .value = value,
             },
         };
         return expr;
     } else {
-        return AllocError.OutOfMemory;
+        return AllocError.StringAllocFailed;
     }
 }
 
@@ -208,6 +220,8 @@ pub const LiteralExpr = union(enum) {
             },
 
             .text => |value| {
+                // TODO(yemon): this is leaking right now, but whatever...
+                // will probably chug the entirety of AST into an arena eventually anyway
                 const target_string: []u8 = allocator.alloc(u8, value.len) catch "";
                 @memcpy(target_string, value);
                 return Value{
@@ -320,7 +334,7 @@ pub fn createFunctionCallExpr(
     return expr;
 }
 
-pub fn printIndents(indents: u32) void {
+fn printIndents(indents: u32) void {
     if (indents == 0) {
         return;
     }
@@ -334,6 +348,7 @@ pub const Stmt = union(enum) {
     expr_stmt: ExprStmt,
     block_stmt: BlockStmt,
     print_stmt: PrintStmt,
+    compound_stmt: CompoundStmt,
     if_stmt: IfStmt,
     while_stmt: WhileStmt,
     variable_declare_stmt: VariableDeclareStmt,
@@ -351,6 +366,9 @@ pub const Stmt = union(enum) {
             },
             .print_stmt => |print| {
                 print.display();
+            },
+            .compound_stmt => |compound| {
+                compound.display();
             },
             .if_stmt => |if_stmt| {
                 if_stmt.display(indents);
@@ -371,43 +389,45 @@ pub const Stmt = union(enum) {
     }
 };
 
-pub const VariableDeclareStmt = struct {
-    name: []u8,
-    initializer: ?*Expr,
+const ExprStmt = struct {
+    expr: *Expr,
 
-    fn display(self: *const VariableDeclareStmt) void {
-        debug.print("var {s}", .{ self.name });
-        if (self.initializer) |initializer| {
-            debug.print(" = ", .{});
-            initializer.*.display(false);
-        }
-        debug.print(";\n", .{});
+    fn display(self: *const ExprStmt) void {
+        self.expr.*.display(false);
+        debug.print("\n", .{});
     }
 };
 
-pub const AllocError = error {
-    OutOfMemory,
-};
-
-pub fn createVariableStmt(allocator: Allocator, identifier: Token, initializer: ?*Expr) AllocError!*Stmt {
-    if (identifier.lexeme) |lexeme| {
-        const target_name = try allocator.alloc(u8, lexeme.len);
-        @memcpy(target_name, lexeme);
-
-        const stmt = try allocator.create(Stmt);
-        stmt.* = Stmt{
-            .variable_declare_stmt = VariableDeclareStmt{
-                .name = target_name,
-                .initializer = initializer,
-            },
-        };
-        return stmt;
-    } else {
-        return AllocError.OutOfMemory;
-    }
+pub fn createExprStmt(allocator: Allocator, expr: *Expr) !*Stmt {
+    const stmt = try allocator.create(Stmt);
+    stmt.* = Stmt{
+        .expr_stmt = ExprStmt{
+            .expr = expr,
+        },
+    };
+    return stmt;
 }
 
-pub const PrintStmt = struct {
+pub const BlockStmt = struct {
+    statements: std.ArrayList(*Stmt),
+
+    pub fn init(allocator: Allocator) BlockStmt {
+        return .{
+            .statements = std.ArrayList(*Stmt).init(allocator),
+        };
+    }
+
+    pub fn display(self: *const BlockStmt, indents: u32) void {
+        debug.print("{{\n", .{});
+        for (self.statements.items) |stmt| {
+            stmt.*.display(indents+1);
+        }
+        printIndents(indents);
+        debug.print("}}\n", .{});
+    }
+};
+
+const PrintStmt = struct {
     expr: *Expr,
 
     fn display(self: *const PrintStmt) void {
@@ -427,26 +447,45 @@ pub fn createPrintStmt(allocator: Allocator, expr: *Expr) !*Stmt {
     return stmt;
 }
 
-pub const ExprStmt = struct {
+const CompoundStmt = struct {
+    identifier: []u8,
+    optr: ArithmeticOp,
     expr: *Expr,
 
-    fn display(self: *const ExprStmt) void {
+    fn display(self: *const CompoundStmt) void {
+        debug.print("{s} ", .{ self.identifier });
+        self.optr.display();
+        debug.print(" ", .{});
         self.expr.*.display(false);
         debug.print("\n", .{});
     }
 };
 
-pub fn createExprStmt(allocator: Allocator, expr: *Expr) !*Stmt {
-    const stmt = try allocator.create(Stmt);
-    stmt.* = Stmt{
-        .expr_stmt = ExprStmt{
-            .expr = expr,
-        },
-    };
-    return stmt;
+pub fn createCompoundStmt(
+    allocator: Allocator, identifier_name: []u8, optr: ArithmeticOp, expr: *Expr,
+) AllocError!*Stmt {
+    if (identifier_name.len > 0) {
+        const name = allocator.alloc(u8, identifier_name.len) catch
+            return AllocError.StringAllocFailed;
+        @memcpy(name, identifier_name);
+        errdefer allocator.free(name);
+
+        const stmt = allocator.create(Stmt) catch
+            return AllocError.OutOfMemory;
+        stmt.* = Stmt{
+            .compound_stmt = CompoundStmt{
+                .identifier = name,
+                .optr = optr,
+                .expr = expr,
+            },
+        };
+        return stmt;
+    } else {
+        return AllocError.StringAllocFailed;
+    }
 }
 
-pub const IfStmt = struct {
+const IfStmt = struct {
     condition: *Expr,
     then_branch: *Stmt,
     else_branch: ?*Stmt,
@@ -478,7 +517,7 @@ pub fn createIfStmt(allocator: Allocator, condition: *Expr, then_branch: *Stmt, 
     return stmt;
 }
 
-pub const WhileStmt = struct {
+const WhileStmt = struct {
     condition: *Expr,
     body: *Stmt,
 
@@ -501,24 +540,42 @@ pub fn createWhileStmt(allocator: Allocator, condition: *Expr, body: *Stmt) !*St
     return stmt;
 }
 
-pub const BlockStmt = struct {
-    statements: std.ArrayList(*Stmt),
+const VariableDeclareStmt = struct {
+    name: []u8,
+    initializer: ?*Expr,
 
-    pub fn init(allocator: Allocator) BlockStmt {
-        return .{
-            .statements = std.ArrayList(*Stmt).init(allocator),
-        };
-    }
-
-    pub fn display(self: *const BlockStmt, indents: u32) void {
-        debug.print("{{\n", .{});
-        for (self.statements.items) |stmt| {
-            stmt.*.display(indents+1);
+    fn display(self: *const VariableDeclareStmt) void {
+        debug.print("var {s}", .{ self.name });
+        if (self.initializer) |initializer| {
+            debug.print(" = ", .{});
+            initializer.*.display(false);
         }
-        printIndents(indents);
-        debug.print("}}\n", .{});
+        debug.print(";\n", .{});
     }
 };
+
+pub fn createVariableDeclareStmt(
+    allocator: Allocator, identifier: Token, initializer: ?*Expr
+) AllocError!*Stmt {
+    if (identifier.lexeme) |lexeme| {
+        const target_name = allocator.alloc(u8, lexeme.len) catch 
+            return AllocError.StringAllocFailed;
+        @memcpy(target_name, lexeme);
+        errdefer allocator.free(target_name);
+
+        const stmt = allocator.create(Stmt) catch
+            return AllocError.OutOfMemory;
+        stmt.* = Stmt{
+            .variable_declare_stmt = VariableDeclareStmt{
+                .name = target_name,
+                .initializer = initializer,
+            },
+        };
+        return stmt;
+    } else {
+        return AllocError.StringAllocFailed;
+    }
+}
 
 pub const FunctionDeclareStmt = struct {
     name: Token,
@@ -548,7 +605,24 @@ pub const FunctionDeclareStmt = struct {
     }
 };
 
-pub const ReturnStmt = struct {
+pub fn createFunctionDeclareStmt(
+    allocator: Allocator, 
+    identifier: Token, 
+    params: ?std.ArrayList(Token), 
+    body: std.ArrayList(*Stmt)
+) !*Stmt {
+    const stmt = try allocator.create(Stmt);
+    stmt.* = .{
+        .func_declare_stmt = .{
+            .name = identifier,
+            .params = params,
+            .body = body,
+        },
+    };
+    return stmt;
+}
+
+const ReturnStmt = struct {
     keyword: Token,
     expr: ?*Expr,
 
@@ -561,6 +635,20 @@ pub const ReturnStmt = struct {
         debug.print(";\n", .{});
     }
 };
+
+pub fn createReturnStmt(
+    allocator: Allocator, 
+    keyword: Token, expr: ?*Expr
+) !*Stmt {
+    const stmt = try allocator.create(Stmt);
+    stmt.* = .{
+        .return_stmt = .{
+            .keyword = keyword,
+            .expr = expr,
+        },
+    };
+    return stmt;
+}
 
 // -----------------------------------------------------------------------------
 

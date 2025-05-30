@@ -7,17 +7,18 @@ const lexer       = @import("lexer.zig");
 const ast         = @import("ast.zig");
 const Parser      = @import("parser.zig");
 const Interpreter = @import("interpreter.zig");
+const Environment = @import("interpreter.zig").Environment;
 
 pub fn main() void {
     // NOTE(yemon): Maybe the repl could use an arena allocator, 
     // which can essentially reset after every execution.
-    // var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    // const allocator = gpa.allocator();
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
     // defer _ = gpa.deinit();
 
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    // var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    // defer arena.deinit();
+    // const allocator = arena.allocator();
  
     var options = opt.parseOptions(allocator);
     defer {
@@ -36,16 +37,11 @@ pub fn main() void {
     interpreter.debug_env = options.show_env;
     // defer allocator.destroy(interpreter.env);
 
-    var repl = Repl.init(&interpreter);
-    if (options.repl_start) {
-        repl.start(allocator, &options);
+    if (options.input_file_path) |input_file_path| {
+        runFile(allocator, &interpreter, input_file_path, &options);
     } else {
-        if (options.input_file_path) |input_file_path| {
-            runFile(allocator, &interpreter, input_file_path, &options);
-        } else {
-            debug.print("No script files provided in the command line as the first argument.\n", .{});
-            debug.print("(Use -h to print out the available options)\n", .{});
-        }
+        var repl = Repl.init(&interpreter);
+        repl.start(allocator, &options);
     }
 }
 
@@ -71,6 +67,10 @@ const Repl = struct {
             debug.print("(Verbose mode -v turned on.)\n", .{});
         }
 
+        const repl_env = Environment.init(allocator, self.interpreter.*.global_env);
+        defer allocator.destroy(repl_env);
+        self.interpreter.env = repl_env;
+
         // NOTE(yemon): Generally, the REPL should be working within the bounds
         // of an area allocator, both for parsing and evaluating.
         const buffer_size = 1024;
@@ -78,14 +78,24 @@ const Repl = struct {
         while (!self.should_quit) {
             debug.print(">> ", .{});
             input_buffer = stdin.readUntilDelimiterAlloc(allocator, '\n', buffer_size) catch "";
-            // NOTE(yemon): is this really necessary, or working?
-            defer allocator.free(input_buffer);
+
+            // NOTE(yemon): Freeing the input buffer invalidates the identifier of the 
+            // function names (and only functions) somehow, but not with the other variable
+            // declarations. So I'm gonna leak this on purpose for the time being.
+            // Will revisit this later on...
+            // defer allocator.free(input_buffer);
+
+            if (self.interpreter.*.debug_env) {
+                self.interpreter.*.env.*.display();
+            }
 
             const input = std.mem.trim(u8, input_buffer, " \r");
             if (input.len == 0) {
                 continue;
             } else {
-                run(allocator, self.interpreter, input, options);
+                if (parse(allocator, input, options)) |statements| {
+                    self.interpreter.*.executeRepl(allocator, statements);
+                } else unreachable;
             }
         }
     }
@@ -93,8 +103,7 @@ const Repl = struct {
 
 fn runFile(
     allocator: Allocator, 
-    interpreter: *Interpreter, 
-    input_file_path: []const u8,
+    interpreter: *Interpreter, input_file_path: []const u8, 
     options: *const opt.Options,
 ) void {
     if (options.verbose) {
@@ -111,27 +120,23 @@ fn runFile(
         debug.print("openReadFile(..) output ({} bytes):\n", .{ contents.len });
     }
 
-    run(allocator, interpreter, contents, options);
+    if (parse(allocator, contents, options)) |statements| {
+        _ = interpreter.*.executeBlock(allocator, statements);
+    } else unreachable;
 }
 
-fn run(
+fn parse(
     allocator: Allocator, 
-    interpreter: *Interpreter, 
-    source: []const u8, 
-    options: *const opt.Options,
-) void {
-    if (options.verbose) {
-        debug.print("------------------------------------------------------------\n", .{});
-    }
+    source: []const u8, options: *const opt.Options
+) ?std.ArrayList(*ast.Stmt) {
+    const is_repl = if (options.input_file_path == null) true else false;
     var scanner = lexer.Scanner.init(allocator, source, options.show_tokens);
-    scanner.startScanning(options.repl_start);
+    scanner.startScanning(is_repl);
 
     if (options.show_tokens) {
         for (scanner.tokens.items) |token| {
             token.display();
         }
-    }
-    if (options.verbose) {
         debug.print("------------------------------------------------------------\n", .{});
     }
 
@@ -141,13 +146,14 @@ fn run(
     // shouldn't bubble up at all.
     // NOTE(yemon): Parser errors can potentially prevent the interpreter execution
     // after the error has been reported (even with the errors that can be synchronized)
+    // The return structure of this function based on the error should probably be refined too
     const statements = parser.parse(allocator) catch |err| {
         debug.print("Error when parsing the expression tree: {}\n", .{ err });
-        return;
+        return null;
     };
     if (options.verbose) {
         debug.print("------------------------------------------------------------\n", .{});
     }
 
-    _ = interpreter.*.executeBlock(allocator, statements);
+    return statements;
 }

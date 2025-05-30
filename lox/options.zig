@@ -9,7 +9,6 @@ pub const Options = struct {
     debug_parser: bool,
     debug_ast: bool,
     show_env: bool,
-    repl_start: bool,
     input_file_path: ?[]u8,
 };
 
@@ -27,12 +26,10 @@ pub fn parseOptions(allocator: Allocator) Options {
         .debug_parser = false,
         .debug_ast = false,
         .show_env = false,
-        .repl_start = false,
         .input_file_path = null,
     };
-    var unknowns = std.ArrayList([]u8).init(allocator);
 
-    for (args[1..], 0..) |arg, idx| {
+    for (args[1..]) |arg| {
         if (eql(u8, arg, "-v") or eql(u8, arg, "--verbose")) {
             options.verbose = true;
             continue;
@@ -57,25 +54,9 @@ pub fn parseOptions(allocator: Allocator) Options {
             options.show_env = true;
             continue;
         }
-        if (eql(u8, arg, "-r") or eql(u8, arg, "--repl")) {
-            options.repl_start = true;
-            continue;
-        }
-        if (idx == 0) read_input: {
-            options.input_file_path = allocator.alloc(u8, arg.len) 
-                catch break :read_input;
-            @memcpy(options.input_file_path.?, arg);
-        } else {
-            unknowns.append(arg) catch continue;
-        }
-    }
 
-    if (unknowns.items.len > 0) {
-        debug.print("Unknown list of command line arguments:", .{});
-        for (unknowns.items) |arg| {
-            debug.print(" {s}", .{arg});
-        }
-        debug.print("\n", .{});
+        options.input_file_path = allocator.alloc(u8, arg.len) catch unreachable;
+        @memcpy(options.input_file_path.?, arg);
     }
 
     return options;
@@ -89,9 +70,10 @@ pub fn displayHelp() void {
     debug.print("\n", .{});
 
     displayOption("-h", "--help",    "Display this help prompt");
-    displayOption("-r", "--repl",    "Start the REPL");
     displayOption("-v", "--verbose", "Turn on the verbose mode");
     debug.print("\n", .{});
+
+    debug.print("  Trigging lox without the [script_file] argument will kick start the REPL mode.\n\n", .{});
 
     debug.print("  Debug options:\n", .{});
     displayOption("-t", "--tokenize", "Display the output of the lexer as list of tokens");

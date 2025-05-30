@@ -8,6 +8,7 @@ const Token     = @import("lexer.zig").Token;
 const TokenType = @import("lexer.zig").TokenType;
 const ast       = @import("ast.zig");
 const report    = @import("report.zig");
+const ArithmeticOp = @import("value.zig").ArithmeticOp;
 
 // NOTE(yemon): Inferred error sets are not compatible with
 // recursive function calls. So, Zig needs an explicit error 
@@ -20,6 +21,7 @@ const ParserError = error {
     InvalidLoopComposition,
     InvalidBlockComposition,
     InvalidExpressionStatement,
+    InvalidStatementComposition,
     InvalidSyncPosition,
     InvalidSyncToken,
     InvalidIdentifierDeclaration,
@@ -108,12 +110,8 @@ fn variableDeclareStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt 
     if (self.advanceIfMatched(.Equal)) {
         initializer = try self.expression(allocator);
     }
-    var_stmt = ast.createVariableStmt(allocator, identifier, initializer) 
-        catch |err| switch (err) {
-            ast.AllocError.OutOfMemory => {
-                return ParserError.OutOfMemory;
-            },
-        };
+    var_stmt = ast.createVariableDeclareStmt(allocator, identifier, initializer) 
+        catch return ParserError.OutOfMemory;
 
     // TODO(yemon): this would cause REPL to report an error if the statement 
     // being entered didn't get terminated with ';'
@@ -190,14 +188,10 @@ fn functionDeclareStmt(
     const body = try self.blockStmts(allocator);
     self.debugPrint("Function body parsed.\n", .{});
 
-    const stmt = try allocator.create(ast.Stmt);
-    stmt.* = ast.Stmt{
-        .func_declare_stmt = ast.FunctionDeclareStmt{
-            .name = identifier,
-            .params = if (params.items.len > 0) params else null,
-            .body = body,
-        },
-    };
+    const stmt = try ast.createFunctionDeclareStmt(
+        allocator, identifier, 
+        if (params.items.len > 0) params else null, body
+    );
     return stmt;
 }
 
@@ -213,6 +207,9 @@ fn statement(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
     } else if (self.advanceIfMatched(.Return)) {
         return try self.returnStmt(allocator);
     } else if (self.advanceIfMatched(.LeftBrace)) {
+        // TODO(yemon): Once the AST is being moved into an arena, maybe the container
+        // `Stmt` should be allocated first, and let the rest of the statements array
+        // follow it, mostly for locality's sake...
         var block = ast.BlockStmt.init(allocator);
         const statements = try self.blockStmts(allocator);
         block.statements = statements;
@@ -222,6 +219,8 @@ fn statement(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
             .block_stmt = block,
         };
         return stmt;
+    } else if (self.isCompoundStmt()) {
+        return try self.compoundStmt(allocator);
     } else {
         return try self.expressionStmt(allocator);
     }
@@ -384,17 +383,10 @@ fn returnStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
         return ParserError.InvalidFunctionComposition;
     }
 
-    const stmt = try allocator.create(ast.Stmt);
-    stmt.* = ast.Stmt{
-        .return_stmt = ast.ReturnStmt{
-            .keyword = keyword,
-            .expr = expr,
-        },
-    };
+    const stmt = try ast.createReturnStmt(allocator, keyword, expr);
     return stmt;
 }
 
-// NOTE(yemon): This is not returning `*ast.Stmt` on purpose.
 fn blockStmts(self: *Self, allocator: Allocator) ParserError!std.ArrayList(*ast.Stmt) {
     var statements = std.ArrayList(*ast.Stmt).init(allocator);
     while (!self.check(.RightBrace) and !self.isEnd()) {
@@ -409,6 +401,57 @@ fn blockStmts(self: *Self, allocator: Allocator) ParserError!std.ArrayList(*ast.
     }
 
     return statements;
+}
+
+fn isCompoundStmt(self: *const Self) bool {
+    const last = self.tokens.*.items.len-1;
+    if (self.current <= last-1) {
+        const peek1 = self.tokens.*.items[self.current];
+        const peek2 = self.tokens.*.items[self.current+1];
+        return peek1.token_type == .Identifier and peek2.isCompoundTokenType();
+    } else return false;
+}
+
+fn compoundStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
+    self.debugPrint("Seems like a compound statement...\n", .{});
+
+    // NOTE(yemon): `advance()` call should not fail here since the `isCompoundStmt()`
+    // check has already been passed.
+    const identifier = self.peek();
+
+    var name: []u8 = undefined;
+    if (identifier.lexeme) |lexeme| {
+        name = @constCast(lexeme);
+    } else {
+        report.errorToken(identifier, 
+            "Left hand side of a compound statement has to be a valid identifier."
+        );
+        return ParserError.InvalidStatementComposition;
+    }
+    _ = self.advance();
+
+    const optr_token = self.peek();
+    const optr: ?ArithmeticOp = op: switch (optr_token.token_type) {
+        .PlusEqual => break :op ArithmeticOp.addition,
+        .MinusEqual => break :op ArithmeticOp.substract,
+        .StarEqual => break :op ArithmeticOp.multiply,
+        .SlashEqual => break :op ArithmeticOp.divide,
+        else => break :op null,
+    };
+    if (optr == null) {
+        report.errorToken(optr_token, 
+            "Compound statements can only utilize either one of those operators: " ++ 
+            "'+=', '-=', '*=' or '/='."
+        );
+        return ParserError.InvalidStatementComposition;
+    }
+    _ = self.advance();
+
+    const expr: *ast.Expr = try self.expression(allocator);
+    
+    const stmt = ast.createCompoundStmt(allocator, name, optr.?, expr)
+        catch return ParserError.InvalidStatementComposition;
+    return stmt;
 }
 
 fn expressionStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
@@ -450,11 +493,7 @@ fn assignment(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
         switch (expr.*) {
             .variable => |variable| {
                 const assign_expr = ast.createAssignmentExpr(allocator, variable, value) 
-                    catch |err| switch (err) {
-                        ast.AllocError.OutOfMemory => {
-                            return ParserError.OutOfMemory;
-                        },
-                    };
+                    catch return ParserError.OutOfMemory;
 
                 if (self.debug_print) {
                     self.debugPrint("Assignment done with ", .{});

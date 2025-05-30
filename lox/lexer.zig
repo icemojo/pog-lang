@@ -17,6 +17,12 @@ pub const TokenType = enum {
     Slash,
     Star,
 
+    // compound operators
+    PlusEqual,
+    MinusEqual,
+    StarEqual,
+    SlashEqual,
+
     // one or two character tokens
     Bang,
     BangEqual,
@@ -74,6 +80,13 @@ pub const Token = struct {
         };
     }
 
+    pub fn isCompoundTokenType(self: *const Token) bool {
+        return switch (self.token_type) {
+            .PlusEqual, .MinusEqual, .StarEqual, .SlashEqual => true,
+            else => false,
+        };
+    }
+
     pub fn display(self: *const Token) void {
         debug.print("[{}] Token ({}", .{ self.line, self.token_type });
         if (self.lexeme) |lexeme| {
@@ -124,18 +137,18 @@ pub const Scanner = struct {
             };
         }
 
-        const last_token = self.tokens.items[self.tokens.items.len-1];
-        if (is_repl and last_token.token_type != .Semicolon) {
-            self.addNonLexemeToken(.Semicolon);
+        if (self.tokens.items.len >= 1) {
+            const last_token = self.tokens.items[self.tokens.items.len-1];
+            if (is_repl and last_token.token_type != .Semicolon) {
+                self.addNonLexemeToken(.Semicolon);
+            }
         }
         self.addNonLexemeToken(.Eof);
     }
 
     fn scanToken(self: *Scanner) !void {
         self.start = self.current;
-        // debugPrint(self, ">> {}", .{ self.current });
         if (self.advance()) |current_ch| {
-            // debugPrint(self, > '{c}'\n", .{ current_ch });
             switch (current_ch) {
                 '(' => {
                     self.addNonLexemeToken(.LeftParen);
@@ -153,13 +166,25 @@ pub const Scanner = struct {
                     self.addNonLexemeToken(.Comma);
                 },
                 '-' => {
-                    self.addLexemeToken(.Minus, "-");
+                    if (self.advanceIfMatched('=')) {
+                        self.addLexemeToken(.MinusEqual, "-=");
+                    } else {
+                        self.addLexemeToken(.Minus, "-");
+                    }
                 },
                 '+' => {
-                    self.addLexemeToken(.Plus, "+");
+                    if (self.advanceIfMatched('=')) {
+                        self.addLexemeToken(.PlusEqual, "+=");
+                    } else {
+                        self.addLexemeToken(.Plus, "+");
+                    }
                 },
                 '*' => {
-                    self.addLexemeToken(.Star, "*");
+                    if (self.advanceIfMatched('=')) {
+                        self.addLexemeToken(.StarEqual, "*=");
+                    } else {
+                        self.addLexemeToken(.Star, "*");
+                    }
                 },
                 ';' => {
                     self.addNonLexemeToken(.Semicolon);
@@ -232,6 +257,8 @@ pub const Scanner = struct {
                             }
                             _ = self.advance();
                         }
+                    } else if (self.advanceIfMatched('=')) {
+                        self.addLexemeToken(.SlashEqual, "/=");
                     } else {
                         self.addLexemeToken(.Slash, "/");
                     }
@@ -252,7 +279,7 @@ pub const Scanner = struct {
                 else => {
                     if (isNumeric(current_ch)) {
                         try self.tokenizeNumber();
-                    } else if (ascii.isAlphabetic(current_ch)) {
+                    } else if (ascii.isAlphabetic(current_ch) or current_ch == '_') {
                         try self.tokenizeIdentifier();
                     } else {
                         // TODO(yemon): is this error report a correct edge case?
@@ -373,7 +400,8 @@ pub const Scanner = struct {
     fn tokenizeIdentifier(self: *Scanner) !void {
         var peek_ch = self.peek();
         while (peek_ch != null or !self.isEnd()) : (peek_ch = self.peek()) {
-            if (ascii.isAlphanumeric(peek_ch.?)) {
+            const char = peek_ch.?;
+            if (ascii.isAlphanumeric(char) or char == '_') {
                 _ = self.advance();
             } else {
                 break;
