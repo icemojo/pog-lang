@@ -32,6 +32,8 @@ pub const TokenType = enum {
     GreaterEqual,
     Less,
     LessEqual,
+    ColonColon,
+    ColonEqual,
 
     // literals
     Identifier,
@@ -42,19 +44,13 @@ pub const TokenType = enum {
     // keywords
     And,
     Or,
-    Var,
-    Class,
-    Function,
     Return,
     If,
     Else,
     For,
-    While,
     True,
     False,
     Nil,
-    Super,
-    This,
 
     // built-in functions
     Print,
@@ -246,6 +242,32 @@ pub const Scanner = struct {
                         token_type = .Greater;
                         lexeme = ">";
                     }
+                    self.addLexemeToken(token_type, lexeme);
+                },
+
+                ':' => {
+                    var token_type: TokenType = undefined;
+                    var lexeme: []const u8 = undefined;
+                    if (self.peek()) |next_ch| {
+                        switch (next_ch) {
+                            ':' => {
+                                token_type = .ColonColon;
+                                lexeme = "::";
+                            },
+                            '=' => {
+                                token_type = .ColonEqual;
+                                lexeme = ":=";
+                            },
+                            else => {
+                                token_type = .Invalid;
+                                lexeme = "";
+                            }
+                        }
+                    } else {
+                        token_type = .Invalid;
+                        lexeme = "";
+                    }
+                    _ = self.advance();
                     self.addLexemeToken(token_type, lexeme);
                 },
 
@@ -502,11 +524,7 @@ pub fn checkKeyword(literal: []const u8) ?Keyword {
 
     var l: [32]u8 = undefined;
     const lower = ascii.lowerString(&l, literal);
-    if (eql(u8, lower, "class")) {
-        return .{ .token_type = .Class, .lexeme = "class" };
-    } else if (eql(u8, lower, "fun")) {
-        return .{ .token_type = .Function, .lexeme = "fun" };
-    } else if (eql(u8, lower, "return")) {
+    if (eql(u8, lower, "return")) {
         return .{ .token_type = .Return, .lexeme = "return" };
     } else if (eql(u8, lower, "if")) {
         return .{ .token_type = .If, .lexeme = "if" };
@@ -518,22 +536,14 @@ pub fn checkKeyword(literal: []const u8) ?Keyword {
         return .{ .token_type = .False, .lexeme = "false" };
     } else if (eql(u8, lower, "for")) {
         return .{ .token_type = .For, .lexeme = "for" };
-    } else if (eql(u8, lower, "while")) {
-        return .{ .token_type = .While, .lexeme = "while" };
     } else if (eql(u8, lower, "nil")) {
         return .{ .token_type = .Nil, .lexeme = "nil" };
     } else if (eql(u8, lower, "and")) {
         return .{ .token_type = .And, .lexeme = "and" };
     } else if (eql(u8, lower, "or")) {
         return .{ .token_type = .Or, .lexeme = "or" };
-    } else if (eql(u8, lower, "this")) {
-        return .{ .token_type = .This, .lexeme = "this" };
-    } else if (eql(u8, lower, "super")) {
-        return .{ .token_type = .Super, .lexeme = "super" };
     } else if (eql(u8, lower, "print")) {
         return .{ .token_type = .Print, .lexeme = "print" };
-    } else if (eql(u8, lower, "var")) {
-        return .{ .token_type = .Var, .lexeme = "var" };
     } else {
         return null;
     }
