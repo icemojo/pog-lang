@@ -204,9 +204,6 @@ fn statement(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
         return try self.printStmt(allocator);
     } else if (self.advanceIfMatched(.If)) {
         return try self.ifStmt(allocator);
-    // TODO(yemon): remove the 'while' statement type entirely
-    // } else if (self.advanceIfMatched(.While)) {
-        // return try self.whileStmt(allocator);
     } else if (self.advanceIfMatched(.For)) {
         return try self.forStmt(allocator);
     } else if (self.advanceIfMatched(.Return)) {
@@ -261,42 +258,18 @@ fn ifStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
     return if_stmt;
 }
 
-fn whileStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
-    self.debugPrint("Seems like a while statement block...\n", .{});
-    if (self.consume(.LeftParen) == null) {
-        self.has_error = true;
-        report.errorToken(self.peek(), "Expect '(' after the 'while' condition.");
-        return ParserError.InvalidLoopComposition;
-    }
-
-    const condition = try self.expression(allocator);
-
-    if (self.consume(.RightParen) == null) {
-        self.has_error = true;
-        report.errorToken(self.peek(), "Expect ')' after the 'while' condition.");
-        return ParserError.InvalidLoopComposition;
-    }
-
-    const body = try self.statement(allocator);
-
-    const while_stmt = try ast.createWhileStmt(allocator, condition, body);
-    return while_stmt;
-}
-
 fn forStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
     self.debugPrint("Seems like a for statement block...\n", .{});
-    if  (self.consume(.LeftParen) == null) {
-        self.has_error = true;
-        report.errorToken(self.peek(), "Expect '(' after 'for'.");
-        return ParserError.InvalidLoopComposition;
-    }
+
+    const identifier, const next_token = self.peekTwo() catch unreachable;
 
     var initializer: ?*ast.Stmt = null;
     if (self.advanceIfMatched(.Semicolon)) {
         initializer = null;
-    // TODO(yemon): refactor with the new variable declaration statement
-    // } else if (self.advanceIfMatched(.Var)) {
-        // initializer = try self.variableDeclareStmt(allocator);
+    } else if (identifier.token_type == .Identifier and next_token.token_type == .ColonEqual) {
+        _ = self.advance();
+        _ = self.advance();
+        initializer = try self.variableDeclareStmt(allocator, identifier);
     } else {
         initializer = try self.expressionStmt(allocator);
     }
@@ -314,12 +287,12 @@ fn forStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
     }
 
     var increment: ?*ast.Expr = null;
-    if (!self.check(.RightParen)) {
+    if (!self.check(.Semicolon)) {
         increment = try self.expression(allocator);
     }
-    if (self.consume(.RightParen) == null) {
+    if (self.consume(.Semicolon) == null) {
         self.has_error = true;
-        report.errorToken(self.peek(), "Expect ')' after the 'for' clauses.");
+        report.errorToken(self.peek(), "Expect ';' after the 'for' loop increment expression.");
         return ParserError.InvalidLoopComposition;
     }
 
@@ -338,7 +311,7 @@ fn forStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
     loop_body.* = ast.Stmt{
         .block_stmt = body_block,
     };
-    const for_loop = try ast.createWhileStmt(allocator, condition, loop_body);
+    const for_loop = try ast.createLoopStmt(allocator, condition, loop_body);
 
     if (initializer) |it| {
         var for_loop_initialized = ast.BlockStmt.init(allocator);

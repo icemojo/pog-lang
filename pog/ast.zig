@@ -350,7 +350,7 @@ pub const Stmt = union(enum) {
     print_stmt: PrintStmt,
     compound_stmt: CompoundStmt,
     if_stmt: IfStmt,
-    while_stmt: WhileStmt,
+    loop_stmt: LoopStmt,
     variable_declare_stmt: VariableDeclareStmt,
     func_declare_stmt: FunctionDeclareStmt,
     return_stmt: ReturnStmt,
@@ -373,8 +373,8 @@ pub const Stmt = union(enum) {
             .if_stmt => |if_stmt| {
                 if_stmt.display(indents);
             },
-            .while_stmt => |while_stmt| {
-                while_stmt.display(indents);
+            .loop_stmt => |loop_stmt| {
+                loop_stmt.display(indents);
             },
             .variable_declare_stmt => |variable_declare| {
                 variable_declare.display();
@@ -517,11 +517,11 @@ pub fn createIfStmt(allocator: Allocator, condition: *Expr, then_branch: *Stmt, 
     return stmt;
 }
 
-const WhileStmt = struct {
+const LoopStmt = struct {
     condition: *Expr,
     body: *Stmt,
 
-    fn display(self: *const WhileStmt, indents: u32) void {
+    fn display(self: *const LoopStmt, indents: u32) void {
         debug.print("while (", .{});
         self.condition.*.display(false);
         debug.print(")\n", .{});
@@ -529,10 +529,10 @@ const WhileStmt = struct {
     }
 };
 
-pub fn createWhileStmt(allocator: Allocator, condition: *Expr, body: *Stmt) !*Stmt {
+pub fn createLoopStmt(allocator: Allocator, condition: *Expr, body: *Stmt) !*Stmt {
     const stmt = try allocator.create(Stmt);
     stmt.* = Stmt{
-        .while_stmt = WhileStmt{
+        .loop_stmt = LoopStmt{
             .condition = condition,
             .body = body,
         },
