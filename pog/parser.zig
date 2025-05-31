@@ -248,19 +248,8 @@ fn printStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
 
 fn ifStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
     self.debugPrint("Seems like an if statement block...\n", .{});
-    if (self.consume(.LeftParen) == null) {
-        self.has_error = true;
-        report.errorToken(self.peek(), "Expect '(' before the 'if' condition.");
-        return ParserError.InvalidBranchComposition;
-    }
 
     const condition = try self.expression(allocator);
-
-    if (self.consume(.RightParen) == null) {
-        self.has_error = true;
-        report.errorToken(self.peek(), "Expect ')' after the 'if' condition.");
-        return ParserError.InvalidBranchComposition;
-    }
 
     const then_branch = try self.statement(allocator);
     var else_branch: ?*ast.Stmt = null;

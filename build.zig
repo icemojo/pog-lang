@@ -37,6 +37,6 @@ pub fn build(b: *std.Build) void {
     if (b.args) |args| {
         og_run_cmd.addArgs(args);
     }
-    const og_run_step = b.step("ox", "Run the Og bytecode VM (Use -h to view more options)");
+    const og_run_step = b.step("og", "Run the Og bytecode VM (Use -h to view more options)");
     og_run_step.dependOn(&og_run_cmd.step);
 }
