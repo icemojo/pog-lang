@@ -93,9 +93,10 @@ const Repl = struct {
             if (input.len == 0) {
                 continue;
             } else {
-                if (parse(allocator, input, options)) |statements| {
-                    self.interpreter.*.executeRepl(allocator, statements);
-                } else unreachable;
+                const has_error, const statements = parse(allocator, input, options);
+                if (!has_error and statements != null) {
+                    _ = self.interpreter.*.executeRepl(allocator, statements.?);
+                }
             }
         }
     }
@@ -120,15 +121,16 @@ fn runFile(
         debug.print("openReadFile(..) output ({} bytes):\n", .{ contents.len });
     }
 
-    if (parse(allocator, contents, options)) |statements| {
-        _ = interpreter.*.executeBlock(allocator, statements);
-    } else unreachable;
+    const has_error, const statements = parse(allocator, contents, options);
+    if (!has_error and statements != null) {
+        _ = interpreter.*.executeBlock(allocator, statements.?);
+    }
 }
 
 fn parse(
     allocator: Allocator, 
     source: []const u8, options: *const opt.Options
-) ?std.ArrayList(*ast.Stmt) {
+) struct{ bool, ?std.ArrayList(*ast.Stmt) } {
     const is_repl = if (options.input_file_path == null) true else false;
     var scanner = lexer.Scanner.init(allocator, source, options.show_tokens);
     scanner.startScanning(is_repl);
@@ -149,11 +151,11 @@ fn parse(
     // The return structure of this function based on the error should probably be refined too
     const statements = parser.parse(allocator) catch |err| {
         debug.print("Error when parsing the expression tree: {}\n", .{ err });
-        return null;
+        return .{ true, null };
     };
     if (options.verbose) {
         debug.print("------------------------------------------------------------\n", .{});
     }
 
-    return statements;
+    return .{ parser.has_error, if (parser.has_error) null else statements };
 }
