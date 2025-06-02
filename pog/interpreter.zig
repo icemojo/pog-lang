@@ -171,7 +171,7 @@ fn evaluateStatement(
         },
 
         .loop_stmt => |loop_stmt| {
-            self.debugPrint("Evaluating while statement block...\n", .{});
+            self.debugPrint("Evaluating loop statement block...\n", .{});
             var eval = self.evaluate(allocator, loop_stmt.condition);
             if (eval.isErrorReturn()) {
                 return eval;
@@ -869,6 +869,49 @@ pub fn executeBlock(
     return block_eval;
 }
 
+pub fn executeBlockEnv(
+    self: *Self, allocator: Allocator, 
+    statements: std.ArrayList(*ast.Stmt)
+) EvaluateResult {
+    self.current_depth += 1;
+    // self.stack.pushFrame();
+
+    defer {
+        // self.stack.popFrame();
+        self.current_depth -= 1;
+    }
+
+    var block_eval: EvaluateResult = undefined;
+    control: for (statements.items) |stmt| {
+        block_eval = self.evaluateStatement(allocator, stmt);
+
+        if (self.debug_env) {
+            self.stack.display();
+        }
+
+        switch (block_eval) {
+            .func_return => |func_return| {
+                self.debugPrint("  >> Statement received a 'func_return', " ++ 
+                    "likely produced by a `return_stmt`. " ++
+                    "(Return value: {s}, caller_depth: {})\n", .{
+                        func_return.value.toString(allocator, true), 
+                        func_return.caller_depth
+                    });
+                break :control;
+            },
+            .error_return => {
+                self.debugPrint("  >> Statement evaluation returned with an error. " ++ 
+                    "This should disrupt the entire execution altogether.\n", .{});
+                break :control;
+            },
+            .no_return, .expr_value => {
+                continue :control;
+            },
+        }
+    }
+
+    return block_eval;
+}
 fn debugPrint(self: *const Self, comptime fmt_msg: []const u8, args: anytype) void {
     if (!self.debug_print) {
         return;

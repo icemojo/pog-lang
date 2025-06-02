@@ -4,6 +4,7 @@ const Allocator = @import("std").mem.Allocator;
 
 const StackError = error {
     UndefinedValue,
+    AlreadyDefinedValue,
     UnableToDefine,
 };
 
@@ -36,11 +37,13 @@ pub fn Stack(comptime V: type) type {
 
         pub fn init(allocator: Allocator) Self {
             var self: Self = .{
-                .inner = .init(allocator),
+                .inner = undefined,
                 .last_frame_index = 0,
                 .current_index = 0,
-                .frames = .init(allocator),
+                .frames = undefined,
             };
+            self.inner = std.ArrayList(EnvValue).initCapacity(allocator, 1024) catch unreachable;
+            self.frames = std.ArrayList(Frame).initCapacity(allocator, 128) catch unreachable;
             self.frames.append(.{ .start = 0, .end = null }) catch unreachable;
             return self;
         }
@@ -64,15 +67,19 @@ pub fn Stack(comptime V: type) type {
         }
 
         pub fn popFrame(self: *Self) void {
-            self.current_index = self.last_frame_index;
+            self.current_index = self.last_frame_index+1;
             _ = self.frames.pop();
         }
 
         /// Define a new variable in the *current frame* if it's not already defined.
         pub fn define(self: *Self, name: []const u8, value: V) !void {
+            if (self.findFrameIndex(name) != null) {
+                return StackError.AlreadyDefinedValue;
+            }
+
             if (self.current_index < self.inner.items.len) {
-                self.current_index += 1;
                 self.inner.items[self.current_index] = .{ .name = name, .value = value };
+                self.current_index += 1;
             } else {
                 self.inner.append(.{ .name = name, .value = value }) 
                     catch return StackError.UnableToDefine;
@@ -93,8 +100,9 @@ pub fn Stack(comptime V: type) type {
                 return null;
             }
 
-            const current_frame = self.frames.items[self.frames.items.len-1];
-            for (self.inner.items[current_frame.start..], current_frame.start..) |item, idx| {
+            const start = self.last_frame_index+1;
+            const end   = self.current_index;
+            for (self.inner.items[start..end], start..end) |item, idx| {
                 if (std.mem.eql(u8, name, item.name)) {
                     return idx;
                 }
@@ -115,7 +123,7 @@ pub fn Stack(comptime V: type) type {
                         }
                     }
                 } else {
-                    for (self.inner.items[frame.start..]) |item| {
+                    for (self.inner.items[frame.start..self.current_index]) |item| {
                         if (std.mem.eql(u8, name, item.name)) {
                             return item.value;
                         }
@@ -131,11 +139,13 @@ pub fn Stack(comptime V: type) type {
                 debug.print("  >> ", .{});
                 if (frame.end) |end| {
                     for (self.inner.items[frame.start..end+1]) |item| {
+                        debug.print("{s}=", .{ item.name });
                         item.value.display(true);
                         debug.print(" | ", .{});
                     }
                 } else {
                     for (self.inner.items[frame.start..]) |item| {
+                        debug.print("{s}=", .{ item.name });
                         item.value.display(true);
                         debug.print(" | ", .{});
                     }

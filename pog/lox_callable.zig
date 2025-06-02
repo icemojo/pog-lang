@@ -45,7 +45,7 @@ pub const LoxFunction = struct {
             }
         }
 
-        const func_eval_result: EvaluateResult = interpreter.executeBlock(
+        const func_eval_result: EvaluateResult = interpreter.executeBlockEnv(
             allocator, self.declaration.body
         );
         return func_eval_result;
