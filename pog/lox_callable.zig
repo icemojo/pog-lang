@@ -6,7 +6,6 @@ const Allocator = @import("std").mem.Allocator;
 const ast = @import("ast.zig");
 const Value = @import("value.zig").Value;
 const Interpreter = @import("interpreter.zig");
-const Environment = @import("interpreter.zig").Environment;
 const EvaluateResult = @import("interpreter.zig").EvaluateResult;
 
 // 1) free functions can be called
@@ -31,8 +30,8 @@ pub const LoxFunction = struct {
         interpreter: *Interpreter, 
         func_args: ?std.ArrayList(Value)
     ) EvaluateResult {
-        const func_env = Environment.init(allocator, interpreter.env);
-        defer allocator.destroy(func_env);
+        interpreter.stack.pushFrame();
+        defer interpreter.stack.popFrame();
 
         if (self.declaration.params != null and func_args != null) {
             const params = self.declaration.params.?;
@@ -41,13 +40,13 @@ pub const LoxFunction = struct {
             for (params.items, 0..) |param, i| {
                 const arg = args.items[i];
                 if (param.lexeme) |name| {
-                    func_env.*.define(name, arg) catch continue;
+                    interpreter.stack.define(name, arg) catch continue;
                 }
             }
         }
 
-        const func_eval_result: EvaluateResult = interpreter.executeBlockEnv(
-            allocator, self.declaration.body, func_env
+        const func_eval_result: EvaluateResult = interpreter.executeBlock(
+            allocator, self.declaration.body
         );
         return func_eval_result;
     }

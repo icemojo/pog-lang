@@ -5,6 +5,7 @@ const Allocator = @import("std").mem.Allocator;
 
 const report = @import("report.zig");
 const ast = @import("ast.zig");
+const Stack = @import("env.zig").Stack;
 const Value = @import("value.zig").Value;
 const LoxFunction = @import("lox_callable.zig").LoxFunction;
 
@@ -28,18 +29,17 @@ const Self = @This();
 
 debug_print: bool,
 debug_env: bool,
-global_env: *Environment,
-env: *Environment,
+stack: Stack(Value),
 caller_depth: i32,
 current_depth: i32,
 
 pub fn init(allocator: Allocator) Self {
-    const global_env = Environment.init(allocator, null);
     var interpreter = Self{
         .debug_print = false,
         .debug_env = false,
-        .global_env = global_env,
-        .env = global_env,
+        //.global_env = global_env,
+        //.env = global_env,
+        .stack = Stack(Value).init(allocator),
         .caller_depth = -1,
         .current_depth = -1,
     };
@@ -53,10 +53,15 @@ fn initBuiltins(self: *Self, allocator: Allocator) !void {
     // `clock_func` should return this when called:
     // `(double)System.currentTimeMillis() / 1000.0;` with arity 0
     // const clock_func = LoxCallable().init(allocator, "clock");
-    // try self.global_env.defineFunction("clock", clock_func);
+    // self.stack.define("clock", clock_func);
 
     const test_name: []u8 = @constCast("test.lox");
-    try self.global_env.*.define("__name__", Value{ .string = test_name });
+    const name = Value{ .string = test_name };
+    self.stack.define("__name__", name) catch unreachable;
+}
+
+pub fn deinit(self: Self) void {
+    self.stack.deinit();
 }
 
 fn evaluateStatement(
@@ -96,7 +101,7 @@ fn evaluateStatement(
             self.debugPrint("Evaluating the compound statement...\n", .{});
 
             const name = compound_stmt.identifier;
-            const value = self.env.*.getValue(name) catch {
+            const value = self.stack.getValue(name) catch {
                 report.runtimeErrorAlloc(
                     allocator, 
                     "Invalid identifier '{s}' for the compound statement target.", .{ name }
@@ -135,7 +140,7 @@ fn evaluateStatement(
                 return .{ .error_return = true };
             };
 
-            self.env.*.assign(name, result) catch {
+            self.stack.assign(name, result) catch {
                 return .{ .error_return = true };
             };
             return .{ .no_return = true };
@@ -219,31 +224,17 @@ fn evaluateStatement(
                     },
                 };
 
-                self.env.*.define(name, value) catch |err| {
-                    switch (err) {
-                        RuntimeError.AlreadyDefinedVariable => {
-                            report.runtimeErrorAlloc(allocator, 
-                                "Variable identifier of name '{s}' already exists.", .{ name }
-                            );
-                        },
-                        else => {
-                            report.runtimeError("Variable declaration failed for unknown reason.");
-                        },
-                    }
+                self.stack.define(name, value) catch {
+                    report.runtimeErrorAlloc( allocator, 
+                        "Variable identifier of name '{s}' already exists.", .{ name }
+                    );
                     return .{ .error_return = true };
                 };
             } else {
-                self.env.*.define(name, Value{ .nil = true }) catch |err| {
-                    switch (err) {
-                        RuntimeError.AlreadyDefinedVariable => {
-                            report.runtimeErrorAlloc(allocator, 
-                                "Variable identifier of name '{s}' already exists.", .{ name }
-                            );
-                        },
-                        else => {
-                            report.runtimeError("Variable declaration failed for unknown reason.");
-                        },
-                    }
+                self.stack.define(name, Value{ .nil = true }) catch {
+                    report.runtimeErrorAlloc( allocator, 
+                        "Variable identifier of name '{s}' already exists.", .{ name }
+                    );
                     return .{ .error_return = true };
                 };
             }
@@ -262,8 +253,9 @@ fn evaluateStatement(
             self.debugPrint("Evaluating the function declaration statement '{s}'...\n", .{ name });
 
             const function = LoxFunction.init(func_declare_stmt);
-            self.env.*.defineFunction(name, function) catch {
-                report.runtimeError("Function declaration failed for unknown reason.");
+            self.stack.define(name, Value{ .function = function }) catch {
+                report.runtimeError("Unable to define the function.");
+                return .{ .error_return = true };
             };
             return .{ .no_return = true };
         },
@@ -418,7 +410,7 @@ fn evaluate(
             const name = variable.lexeme.?;
             self.debugPrint("  Evaluating variable expression '{s}'...\n", .{ name });
 
-            const value = self.env.*.getValue(name) catch {
+            const value = self.stack.getValue(name) catch {
                 report.runtimeErrorAlloc(allocator, "Undefined variable '{s}'.", .{ name });
                 return .{ .error_return = true };
             };
@@ -473,7 +465,8 @@ fn evaluateAssignmentExpr(
     }
 
     const value = eval.getExprOrFuncReturnValue();
-    try self.env.*.assign(assignment.identifier, value);
+    self.stack.assign(assignment.identifier, value) catch 
+        return RuntimeError.UndefinedIdentifier;
 }
 
 fn evaluateBinaryExpr(
@@ -728,7 +721,7 @@ fn evaluateFunctionCallExpr(
     switch (callee) {
         .variable => |variable| {
             const name = variable.lexeme orelse unreachable;
-            const value = self.env.*.getValue(name) catch {
+            const value = self.stack.getValue(name) catch {
                 report.runtimeErrorAlloc(allocator, "Undefined function '{s}'.", .{ name });
                 return .{ .error_return = true };
             };
@@ -822,7 +815,7 @@ pub fn executeRepl(
         }
 
         if (self.debug_env) {
-            self.env.*.display();
+            self.stack.display();
         }
 
         // NOTE(yemon): not doing anything right now on eval result variants
@@ -837,13 +830,10 @@ pub fn executeBlock(
     statements: std.ArrayList(*ast.Stmt)
 ) EvaluateResult {
     self.current_depth += 1;
-    const parent_env = self.env;
-    const block_env = Environment.init(allocator, self.env);
-    self.env = block_env;
+    self.stack.pushFrame();
 
     defer {
-        self.env = parent_env;
-        allocator.destroy(block_env);
+        self.stack.popFrame();
         self.current_depth -= 1;
     }
 
@@ -852,7 +842,7 @@ pub fn executeBlock(
         block_eval = self.evaluateStatement(allocator, stmt);
 
         if (self.debug_env) {
-            self.env.*.display();
+            self.stack.display();
         }
 
         switch (block_eval) {
@@ -878,134 +868,6 @@ pub fn executeBlock(
 
     return block_eval;
 }
-
-pub fn executeBlockEnv(
-    self: *Self, allocator: Allocator, 
-    statements: std.ArrayList(*ast.Stmt), 
-    with_env: *Environment
-) EvaluateResult {
-    self.current_depth += 1;
-    const parent_env = self.env;
-    self.env = with_env;
-
-    defer {
-        self.env = parent_env;
-        self.current_depth -= 1;
-    }
-
-    var block_eval: EvaluateResult = undefined;
-    control: for (statements.items) |stmt| {
-        block_eval = self.evaluateStatement(allocator, stmt);
-
-        if (self.debug_env) {
-            self.env.*.display();
-        }
-
-        switch (block_eval) {
-            .func_return => |func_return| {
-                self.debugPrint("  >> Statement received a `func_return`, " ++ 
-                    "likely produced by a `return_stmt`. " ++
-                    "(Return value: {s}, caller_depth: {})\n", .{
-                        func_return.value.toString(allocator, true), 
-                        func_return.caller_depth
-                    });
-                break :control;
-            },
-            .error_return => {
-                self.debugPrint("  >> Statement evaluation returned with an error. " ++ 
-                    "This should disrupt the entire execution altogether.\n", .{});
-                break :control;
-            },
-            .no_return, .expr_value => {
-                continue :control;
-            }
-        }
-    }
-    
-    return block_eval;
-}
-
-// It's kinda rare in for language to have both the variables and function declarations
-// to NOT live in the same namespace. (e.g., Common Lisp). 
-// If the functions need to be "first-class citizens", they both have to exist 
-// in the same namespace.
-pub const Environment = struct {
-    enclosing: ?*Environment,
-    values: std.StringHashMap(Value),
-
-    pub fn init(allocator: Allocator, enclosing: ?*Environment) *Environment {
-        const env = allocator.create(Environment) catch unreachable;
-        env.*.enclosing = enclosing;
-        env.*.values = std.StringHashMap(Value).init(allocator);
-        return env;
-    }
-
-    pub fn define(self: *Environment, name: []const u8, value: Value) !void {
-        if (self.alreadyDefined(name)) {
-            return RuntimeError.AlreadyDefinedVariable;
-        }
-        try self.values.put(name, value);
-    }
-
-    fn defineFunction(self: *Environment, name: []const u8, function: LoxFunction) !void {
-        try self.values.put(name, Value{
-            .function = function,
-        });
-    }
-
-    fn assign(self: *Environment, name: []const u8, value: Value) !void {
-        if (!self.alreadyDefined(name)) {
-            if (self.enclosing) |enclosing| {
-                return try enclosing.*.assign(name, value);
-            } else {
-                // NOTE(yemon): Already at the top most (global) scope
-                return RuntimeError.UndefinedIdentifier;
-            }
-        }
-        self.values.put(name, value) catch return RuntimeError.DefinitionFailed;
-    }
-
-    fn getValue(self: *const Environment, name: []const u8) !Value {
-        if (self.values.get(name)) |value| {
-            return value;
-        } else {
-            if (self.enclosing) |it| {
-                return it.*.getValue(name);
-            } else {
-                // NOTE(yemon): Already at the top most (global) scope
-                return RuntimeError.UndefinedIdentifier;
-            }
-        }
-    }
-
-    fn alreadyDefined(self: *const Environment, name: []const u8) bool {
-        if (self.values.get(name)) |_| {
-            return true;
-        } else {
-            return false;
-        }
-    }
-
-    pub fn display(self: *const Environment) void {
-        debug.print("[Env: ", .{});
-        var iter = self.values.iterator();
-        while (iter.next()) |entry| {
-            const key: []const u8 = entry.key_ptr.*;
-            const value: Value = entry.value_ptr.*;
-            debug.print("{s}=", .{ key });
-            value.display(true);
-            debug.print(" | ", .{});
-        }
-        debug.print("]", .{});
-
-        if (self.enclosing) |enclosing| {
-            debug.print(" ", .{});
-            enclosing.*.display();
-        } else {
-             debug.print("\n", .{});
-        }
-    }
-};
 
 fn debugPrint(self: *const Self, comptime fmt_msg: []const u8, args: anytype) void {
     if (!self.debug_print) {

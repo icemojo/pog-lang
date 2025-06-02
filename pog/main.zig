@@ -7,7 +7,6 @@ const lexer       = @import("lexer.zig");
 const ast         = @import("ast.zig");
 const Parser      = @import("parser.zig");
 const Interpreter = @import("interpreter.zig");
-const Environment = @import("interpreter.zig").Environment;
 
 pub fn main() void {
     // NOTE(yemon): Maybe the repl could use an arena allocator, 
@@ -35,7 +34,7 @@ pub fn main() void {
     var interpreter = Interpreter.init(allocator);
     interpreter.debug_print = options.verbose;
     interpreter.debug_env = options.show_env;
-    // defer allocator.destroy(interpreter.env);
+    defer interpreter.deinit();
 
     if (options.input_file_path) |input_file_path| {
         runFile(allocator, &interpreter, input_file_path, &options);
@@ -67,10 +66,6 @@ const Repl = struct {
             debug.print("(Verbose mode -v turned on.)\n", .{});
         }
 
-        const repl_env = Environment.init(allocator, self.interpreter.*.global_env);
-        defer allocator.destroy(repl_env);
-        self.interpreter.env = repl_env;
-
         // NOTE(yemon): Generally, the REPL should be working within the bounds
         // of an area allocator, both for parsing and evaluating.
         const buffer_size = 1024;
@@ -86,7 +81,7 @@ const Repl = struct {
             // defer allocator.free(input_buffer);
 
             if (self.interpreter.*.debug_env) {
-                self.interpreter.*.env.*.display();
+                self.interpreter.stack.display();
             }
 
             const input = std.mem.trim(u8, input_buffer, " \r");
