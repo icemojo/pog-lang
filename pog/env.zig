@@ -8,6 +8,8 @@ const StackError = error {
     UnableToDefine,
 };
 
+const USIZE_MAX: usize = std.math.maxInt(usize);
+
 // NOTE(yemon):
 // It's kinda rare in for language to have both the variables and function declarations
 // to NOT live in the same namespace. (e.g., Common Lisp). 
@@ -38,7 +40,7 @@ pub fn Stack(comptime V: type) type {
         pub fn init(allocator: Allocator) Self {
             var self: Self = .{
                 .inner = undefined,
-                .last_frame_index = 0,
+                .last_frame_index = USIZE_MAX,
                 .current_index = 0,
                 .frames = undefined,
             };
@@ -56,9 +58,24 @@ pub fn Stack(comptime V: type) type {
         /// Will just bump the frame index tracker. Does not guarantee the 'inner' collection
         /// will grow together, and thus the new `current_index` may or may not be a valid index.
         pub fn pushFrame(self: *Self) void {
-            self.frames.items[self.frames.items.len-1].end = if (self.inner.items.len >= 1) 
-                self.current_index-1 else 0;
-            self.last_frame_index = self.current_index-1;
+            // self.frames.items[self.frames.items.len-1].end = if (self.inner.items.len >= 1) 
+            //     self.current_index-1 else 0;
+            // self.last_frame_index = self.current_index-1;
+
+            if (self.frames.items.len > 0) {
+                const current_frame = &self.frames.items[self.frames.items.len-1];
+                if (self.current_index > current_frame.start) {
+                    current_frame.end = self.current_index-1;
+                } else {
+                    current_frame.end = null;
+                }
+            }
+
+            if (self.current_index == 0) {
+                self.last_frame_index = USIZE_MAX;
+            } else {
+                self.last_frame_index = self.current_index-1;
+            }
 
             self.frames.append(.{
                 .start = self.current_index,
@@ -67,8 +84,26 @@ pub fn Stack(comptime V: type) type {
         }
 
         pub fn popFrame(self: *Self) void {
-            self.current_index = self.last_frame_index+1;
+            // self.current_index = self.last_frame_index+1;
+            // _ = self.frames.pop();
+
+            if (self.frames.items.len == 0) {
+                return;
+            }
+
+            const current_frame = &self.frames.items[self.frames.items.len-1];
+            self.current_index = current_frame.start;
             _ = self.frames.pop();
+
+            // NOTE(yemon): `last_frame_index` will be reset back to `USIZE_MAX`
+            // when the *current frame* has already reached the stack-bottom frame.
+            if (self.frames.items.len > 0) {
+                if (self.current_index == 0) {
+                    self.last_frame_index = USIZE_MAX;
+                } else {
+                    self.last_frame_index = self.current_index-1;
+                }
+            }
         }
 
         /// Define a new variable in the *current frame* if it's not already defined.
@@ -100,13 +135,24 @@ pub fn Stack(comptime V: type) type {
                 return null;
             }
 
-            const start = self.last_frame_index+1;
-            const end   = self.current_index;
-            for (self.inner.items[start..end], start..end) |item, idx| {
+            const current_frame_start = self.last_frame_index+%1;
+            if (current_frame_start >= self.current_index) {
+                return null;
+            }
+
+            for (self.inner.items[current_frame_start..self.current_index], current_frame_start..) |item, idx| {
                 if (std.mem.eql(u8, name, item.name)) {
-                    return idx;
+                    return current_frame_start + idx;
                 }
             }
+
+            // const start = self.last_frame_index+1;
+            // const end   = self.current_index;
+            // for (self.inner.items[start..end], start..end) |item, idx| {
+            //     if (std.mem.eql(u8, name, item.name)) {
+            //         return idx;
+            //     }
+            // }
             return null;
         }
 
