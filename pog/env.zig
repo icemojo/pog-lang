@@ -2,9 +2,11 @@ const std = @import("std");
 const debug = @import("std").debug;
 const Allocator = @import("std").mem.Allocator;
 
+const Value = @import("value.zig").Value;
+
 const StackError = error {
-    UndefinedValue,
-    AlreadyDefinedValue,
+    Undefined,
+    AlreadyDefined,
     UnableToDefine,
 };
 
@@ -18,179 +20,173 @@ const USIZE_MAX: usize = std.math.maxInt(usize);
 
 // NOTE(yemon): This specifically does not need to be a generic, but since I'm writing pog
 // as part of the Zig learning experience, I'm making this generic just for reference purposes.
-pub fn Stack(comptime V: type) type {
+pub const Stack = struct {
     const Frame = struct {
         start: usize,
-        end: ?usize,
+        end: usize,
     };
 
     const EnvValue = struct {
         name: []const u8,
-        value: V,
+        value: Value,
     };
 
-    return struct {
-        inner: std.ArrayList(EnvValue),
-        last_frame_index: usize,
-        current_index: usize,
-        frames: std.ArrayList(Frame),
+    inner: std.ArrayList(EnvValue),
+    frames: std.ArrayList(Frame),
 
-        const Self = @This();
+    const Self = @This();
 
-        pub fn init(allocator: Allocator) Self {
-            var self: Self = .{
-                .inner = undefined,
-                .last_frame_index = USIZE_MAX,
-                .current_index = 0,
-                .frames = undefined,
-            };
-            self.inner = std.ArrayList(EnvValue).initCapacity(allocator, 1024) catch unreachable;
-            self.frames = std.ArrayList(Frame).initCapacity(allocator, 128) catch unreachable;
-            self.frames.append(.{ .start = 0, .end = null }) catch unreachable;
-            return self;
+    pub fn init(allocator: Allocator) Self {
+        var self: Self = .{
+            .inner = undefined,
+            .frames = undefined,
+        };
+        self.inner = std.ArrayList(EnvValue).initCapacity(allocator, 1024) catch unreachable;
+        self.frames = std.ArrayList(Frame).initCapacity(allocator, 128) catch unreachable;
+
+        self.frames.append(.{ 
+            .start = 0, 
+            .end = 0, // USIZE_MAX,
+        }) catch unreachable;
+
+        return self;
+    }
+
+    pub fn deinit(self: Self) void {
+        self.inner.deinit();
+        self.frames.deinit();
+    }
+
+    pub fn pushFrame(self: *Self) void {
+        if (self.frames.items.len == 0) {
+            self.frames.append(.{ .start = 0, .end = 0 }) catch unreachable;
         }
 
-        pub fn deinit(self: Self) void {
-            self.inner.deinit();
-            self.frames.deinit();
+        const last_frame = self.frames.items[self.frames.items.len-1];
+        const new_frame: Frame = .{ 
+            .start = last_frame.end+1,
+            .end = last_frame.end+1,
+        };
+        self.frames.append(new_frame) catch unreachable;
+    }
+
+    /// Will just bump the frame index tracker. Does not guarantee the 'inner' collection
+    /// will grow together, and thus the new `current_index` may or may not be a valid index.
+    pub fn popFrame(self: *Self) void {
+        if (self.frames.items.len == 1) {
+            return;
+        }
+        _ = self.frames.pop();
+    }
+
+    /// Define a new variable in the *current frame* if it's not already defined.
+    pub fn define(self: *Self, name: []const u8, value: Value) !void {
+        const last_frame = &self.frames.items[self.frames.items.len-1];
+
+        if (self.inner.items.len == 0 or last_frame.end == 0) {
+            self.inner.append(.{ .name = name, .value = value })
+                catch return StackError.UnableToDefine;
+            return;
         }
 
-        /// Will just bump the frame index tracker. Does not guarantee the 'inner' collection
-        /// will grow together, and thus the new `current_index` may or may not be a valid index.
-        pub fn pushFrame(self: *Self) void {
-            // self.frames.items[self.frames.items.len-1].end = if (self.inner.items.len >= 1) 
-            //     self.current_index-1 else 0;
-            // self.last_frame_index = self.current_index-1;
-
-            if (self.frames.items.len > 0) {
-                const current_frame = &self.frames.items[self.frames.items.len-1];
-                if (self.current_index > current_frame.start) {
-                    current_frame.end = self.current_index-1;
-                } else {
-                    current_frame.end = null;
-                }
-            }
-
-            if (self.current_index == 0) {
-                self.last_frame_index = USIZE_MAX;
-            } else {
-                self.last_frame_index = self.current_index-1;
-            }
-
-            self.frames.append(.{
-                .start = self.current_index,
-                .end = null,
-            }) catch unreachable;
+        if (self.findFrameIndex(name) != null) {
+            return StackError.AlreadyDefined;
         }
 
-        pub fn popFrame(self: *Self) void {
-            // self.current_index = self.last_frame_index+1;
-            // _ = self.frames.pop();
-
-            if (self.frames.items.len == 0) {
-                return;
-            }
-
-            const current_frame = &self.frames.items[self.frames.items.len-1];
-            self.current_index = current_frame.start;
-            _ = self.frames.pop();
-
-            // NOTE(yemon): `last_frame_index` will be reset back to `USIZE_MAX`
-            // when the *current frame* has already reached the stack-bottom frame.
-            if (self.frames.items.len > 0) {
-                if (self.current_index == 0) {
-                    self.last_frame_index = USIZE_MAX;
-                } else {
-                    self.last_frame_index = self.current_index-1;
-                }
-            }
+        if (last_frame.end < self.inner.items.len and last_frame.start != last_frame.end) {
+            self.inner.items[last_frame.*.end] = .{ .name = name, .value = value };
+            last_frame.*.end += 1;
+        } else {
+            self.inner.append(.{ .name = name, .value = value })
+                catch return StackError.UnableToDefine;
+            last_frame.*.end = self.inner.items.len-1;
         }
+        _ = last_frame.*;
+    }
 
-        /// Define a new variable in the *current frame* if it's not already defined.
-        pub fn define(self: *Self, name: []const u8, value: V) !void {
-            if (self.findFrameIndex(name) != null) {
-                return StackError.AlreadyDefinedValue;
-            }
+    /// Find the variable in the *current frame* and replace its value.
+    pub fn assign(self: *Self, name: []const u8, value: Value) !void {
+        if (self.findFrameIndex(name)) |frame_index| {
+            self.inner.items[frame_index] = .{ .name = name, .value = value };
+        } else return StackError.Undefined;
+    }
 
-            if (self.current_index < self.inner.items.len) {
-                self.inner.items[self.current_index] = .{ .name = name, .value = value };
-                self.current_index += 1;
-            } else {
-                self.inner.append(.{ .name = name, .value = value }) 
-                    catch return StackError.UnableToDefine;
-                self.current_index = self.inner.items.len;
-            }
-        }
-
-        /// Find the variable in the *current frame* and update its value.
-        pub fn assign(self: *Self, name: []const u8, value: V) !void {
-            if (self.findFrameIndex(name)) |frame_index| {
-                self.inner.items[frame_index] = .{ .name = name, .value = value };
-            } else return StackError.UndefinedValue;
-        }
-
-        /// Find the allocated index of the variable with the given name in the *current frame*.
-        fn findFrameIndex(self: *const Self, name: []const u8) ?usize {
-            if (self.inner.items.len == 0 or self.frames.items.len == 0) {
-                return null;
-            }
-
-            const current_frame_start = self.last_frame_index+%1;
-            if (current_frame_start >= self.current_index) {
-                return null;
-            }
-
-            for (self.inner.items[current_frame_start..self.current_index], current_frame_start..) |item, idx| {
-                if (std.mem.eql(u8, name, item.name)) {
-                    return current_frame_start + idx;
-                }
-            }
-
-            // const start = self.last_frame_index+1;
-            // const end   = self.current_index;
-            // for (self.inner.items[start..end], start..end) |item, idx| {
-            //     if (std.mem.eql(u8, name, item.name)) {
-            //         return idx;
-            //     }
-            // }
+    /// Find the allocated index of the variable with the given name in the *current frame*.
+    fn findFrameIndex(self: *const Self, name: []const u8) ?usize {
+        if (self.inner.items.len == 0 or self.frames.items.len == 0) {
             return null;
         }
 
-        /// Find the variable with the given name starting from the *current frame*,
-        /// going down the stack in reverse order until it hits the bottom.
-        /// Returns the value of the very first name it hits, no matter the frame it's defined.
-        pub fn getValue(self: *const Self, name: []const u8) !V {
-            var frame_iter = std.mem.reverseIterator(self.frames.items);
-            while (frame_iter.next()) |frame| {
-                if (frame.end) |end| {
-                    for (self.inner.items[frame.start..end+1]) |item| {
-                        if (std.mem.eql(u8, name, item.name)) {
-                            return item.value;
-                        }
+        const last_frame = self.frames.items[self.frames.items.len-1];
+        if (last_frame.end == 0) {
+            return null;
+        }
+
+        const inner_len = self.inner.items.len;
+        if (last_frame.start < inner_len and last_frame.end < inner_len) {
+            for (self.inner.items[last_frame.start..last_frame.end+1], last_frame.start..last_frame.end+1) |item, idx| {
+                if (std.mem.eql(u8, name, item.name)) {
+                    return idx;
+                }
+            }
+        } else {
+            return null;
+        }
+
+        return null;
+    }
+
+    /// Find the variable with the given name starting from the *current frame*,
+    /// going down the stack in reverse order until it hits the bottom.
+    /// Returns the value of the very first name it hits, no matter the frame it's defined.
+    pub fn getValue(self: *const Self, name: []const u8) !Value {
+        if (self.inner.items.len == 0 or self.frames.items.len == 0) {
+            return StackError.Undefined;
+        }
+
+        const last_frame = &self.frames.items[self.frames.items.len-1];
+
+        const inner_len = self.inner.items.len;
+        var frame_iter = std.mem.reverseIterator(self.frames.items);
+        rev_frames: while (frame_iter.next()) |frame| {
+            if (frame.start >= inner_len and frame.end >= inner_len) {
+                continue :rev_frames;
+            } else if (frame.start < inner_len and frame.end >= inner_len) {
+                for (self.inner.items[frame.start..]) |item| {
+                    if (std.mem.eql(u8, name, item.name)) {
+                        return item.value;
                     }
-                } else {
-                    for (self.inner.items[frame.start..self.current_index]) |item| {
-                        if (std.mem.eql(u8, name, item.name)) {
-                            return item.value;
-                        }
+                }
+            } else {
+                for (self.inner.items[frame.start..frame.end+1]) |item| {
+                    if (std.mem.eql(u8, name, item.name)) {
+                        return item.value;
                     }
                 }
             }
-            return StackError.UndefinedValue;
         }
-        
-        pub fn display(self: *const Self) void {
+        _ = last_frame;
+        return StackError.Undefined;
+    }
+    
+    pub fn display(self: *const Self) void {
+        if (self.frames.items.len == 0) {
+            debug.print("[Stack: ]\n", .{});
+        } else {
             debug.print("[Stack: \n", .{});
-            for (self.frames.items) |frame| {
+            const inner_len = self.inner.items.len;
+            print_frames: for (self.frames.items) |frame| {
                 debug.print("  >> ", .{});
-                if (frame.end) |end| {
-                    for (self.inner.items[frame.start..end+1]) |item| {
+                if (frame.start >= inner_len and frame.end >= inner_len) {
+                    continue :print_frames;
+                } else if (frame.start < inner_len and frame.end >= inner_len) {
+                    for (self.inner.items[frame.start..]) |item| {
                         debug.print("{s}=", .{ item.name });
                         item.value.display(true);
                         debug.print(" | ", .{});
                     }
                 } else {
-                    for (self.inner.items[frame.start..]) |item| {
+                    for (self.inner.items[frame.start..frame.end+1]) |item| {
                         debug.print("{s}=", .{ item.name });
                         item.value.display(true);
                         debug.print(" | ", .{});
@@ -200,5 +196,5 @@ pub fn Stack(comptime V: type) type {
             }
             debug.print("]\n", .{});
         }
-    };
-}
+    }
+};

@@ -29,7 +29,7 @@ const Self = @This();
 
 debug_print: bool,
 debug_env: bool,
-stack: Stack(Value),
+stack: Stack,
 caller_depth: i32,
 current_depth: i32,
 
@@ -37,9 +37,7 @@ pub fn init(allocator: Allocator) Self {
     var interpreter = Self{
         .debug_print = false,
         .debug_env = false,
-        //.global_env = global_env,
-        //.env = global_env,
-        .stack = Stack(Value).init(allocator),
+        .stack = Stack.init(allocator),
         .caller_depth = -1,
         .current_depth = -1,
     };
@@ -49,6 +47,7 @@ pub fn init(allocator: Allocator) Self {
 
 // TODO(yemon): `__env__`, `__name__`, `print()`, `clock()` so on and so forth...
 fn initBuiltins(self: *Self, allocator: Allocator) !void {
+    // _ = self;
     _ = allocator;
     // `clock_func` should return this when called:
     // `(double)System.currentTimeMillis() / 1000.0;` with arity 0
