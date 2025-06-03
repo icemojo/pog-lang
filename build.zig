@@ -4,39 +4,39 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const lox_exe = b.addExecutable(.{
-        .name = "lox",
+    const pog_exe = b.addExecutable(.{
+        .name = "pog",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("lox/main.zig"),
+            .root_source_file = b.path("pog/main.zig"),
             .target = target,
             .optimize = optimize,
         }),
     });
-    b.installArtifact(lox_exe);
+    b.installArtifact(pog_exe);
 
-    const ox_exe = b.addExecutable(.{
-        .name = "ox",
+    const og_exe = b.addExecutable(.{
+        .name = "og",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("ox/main.zig"),
+            .root_source_file = b.path("og/main.zig"),
             .target = target,
             .optimize = optimize,
         }),
     });
-    b.installArtifact(ox_exe);
+    b.installArtifact(og_exe);
 
-    const lox_run_cmd = b.addRunArtifact(lox_exe);
-    lox_run_cmd.step.dependOn(b.getInstallStep());
+    const pog_run_cmd = b.addRunArtifact(pog_exe);
+    pog_run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| {
-        lox_run_cmd.addArgs(args);
+        pog_run_cmd.addArgs(args);
     }
-    const lox_run_step = b.step("lox", "Run the Lox interpreter (Use -h to view more options)");
-    lox_run_step.dependOn(&lox_run_cmd.step);
+    const pog_run_step = b.step("pog", "Run the Pog language interpreter (Use -h to view more options)");
+    pog_run_step.dependOn(&pog_run_cmd.step);
 
-    const ox_run_cmd = b.addRunArtifact(ox_exe);
-    ox_run_cmd.step.dependOn(b.getInstallStep());
+    const og_run_cmd = b.addRunArtifact(og_exe);
+    og_run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| {
-        ox_run_cmd.addArgs(args);
+        og_run_cmd.addArgs(args);
     }
-    const ox_run_step = b.step("ox", "Run the Ox bytecode VM (Use -h to view more options)");
-    ox_run_step.dependOn(&ox_run_cmd.step);
+    const og_run_step = b.step("og", "Run the Og bytecode VM (Use -h to view more options)");
+    og_run_step.dependOn(&og_run_cmd.step);
 }

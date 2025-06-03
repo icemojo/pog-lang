@@ -165,17 +165,17 @@ fn evaluateStatement(
             return if_eval_result;
         },
 
-        .while_stmt => |while_stmt| {
+        .loop_stmt => |loop_stmt| {
             self.debugPrint("Evaluating while statement block...\n", .{});
-            var eval = self.evaluate(allocator, while_stmt.condition);
+            var eval = self.evaluate(allocator, loop_stmt.condition);
             if (eval.isErrorReturn()) {
                 return eval;
             }
             var condition = eval.getExprOrFuncReturnValue();
 
             const loop_eval_result: EvaluateResult = loop: while (condition.isTruthy()) {
-                const eval_result = self.evaluateStatement(allocator, while_stmt.body);
-                eval = self.evaluate(allocator, while_stmt.condition);
+                const eval_result = self.evaluateStatement(allocator, loop_stmt.body);
+                eval = self.evaluate(allocator, loop_stmt.condition);
                 if (eval.isErrorReturn()) {
                     return eval;
                 }

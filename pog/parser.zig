@@ -82,74 +82,75 @@ pub fn parse(self: *Self, allocator: Allocator) ParserError!std.ArrayList(*ast.S
 }
 
 fn declaration(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
-    if (self.advanceIfMatched(.Var)) {
-        return try self.variableDeclareStmt(allocator);
-    } else if (self.advanceIfMatched(.Function)) {
-        return try self.functionDeclareStmt(allocator, "function");
+    const identifier, var next_token = self.peekTwo() catch {
+        return try self.statement(allocator);
+    };
+
+    if (identifier.token_type == .Identifier and 
+        (next_token.token_type == .ColonColon or next_token.token_type == .ColonEqual)
+    ) {
+        if (next_token.token_type == .ColonColon) { 
+            _ = self.advance();
+            _ = self.advance();
+            next_token = self.peek();
+            switch (next_token.token_type) {
+                .LeftParen => {
+                    return try self.functionDeclareStmt(allocator, identifier, "function");
+                },
+                .LeftBrace => {
+                    // TODO(yemon): struct declaration
+                    self.has_error = true;
+                    report.errorToken(next_token, "Struct declarations are not done yet.");
+                    return ParserError.DunnoIdentifier;
+                },
+                else => {
+                    self.has_error = true;
+                    report.errorToken(next_token, "Invalid token following a constant declaration identifier.");
+                    return ParserError.InvalidIdentifierDeclaration;
+                }
+            }
+        } else if (next_token.token_type == .ColonEqual) {
+            _ = self.advance();
+            _ = self.advance();
+            return try self.variableDeclareStmt(allocator, identifier);
+        } else {
+            return try self.statement(allocator);
+        }
     } else {
         return try self.statement(allocator);
     }
 }
 
-fn variableDeclareStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
+fn variableDeclareStmt(self: *Self, allocator: Allocator, identifier: Token) ParserError!*ast.Stmt {
     self.debugPrint("Seems like a variable declaration statement...\n", .{});
-    var identifier: Token = undefined;
-
-    if (self.consume(.Identifier)) |it| {
-        identifier = it;
-    } else {
-        self.has_error = true;
-        report.errorToken(self.peek(), "Expect a valid identifier declaration.");
+    // TODO(yemon): struct and tuple variable assignments later on...
+    const initializer = self.expression(allocator) catch {
+        report.errorToken(identifier, "A variable cannot be left uninitialized.");
         return ParserError.InvalidIdentifierDeclaration;
-    }
+    };
 
-    var var_stmt: *ast.Stmt = undefined;
-    self.debugPrint("Identifier name is '{s}'\n", .{ identifier.lexeme.? });
-
-    var initializer: ?*ast.Expr = null;
-    if (self.advanceIfMatched(.Equal)) {
-        initializer = try self.expression(allocator);
-    }
-    var_stmt = ast.createVariableDeclareStmt(allocator, identifier, initializer) 
-        catch return ParserError.OutOfMemory;
-
-    // TODO(yemon): this would cause REPL to report an error if the statement 
-    // being entered didn't get terminated with ';'
-    // Right now, the temporary solution is to add manually add ';' at the end of the
-    // tokenizer scanning chain. Hacky, don't like it at all!
     if (self.consume(.Semicolon) == null) {
         self.has_error = true;
-        report.errorToken(self.peek(), 
-            "Expect an EOL terminator ';' after an identifier declaration expression."
-        );
+        report.errorToken(self.peek(), "Expect an EOL terminator ';' after a variable declaration expression.");
         return ParserError.UnterminatedStatement;
     }
 
+    const var_stmt = ast.createVariableDeclareStmt(allocator, identifier, initializer)
+        catch return ParserError.OutOfMemory;
     return var_stmt;
 }
 
 fn functionDeclareStmt(
     self: *Self, 
-    allocator: Allocator, 
+    allocator: Allocator, identifier: Token,
     comptime kind: []const u8
 ) ParserError!*ast.Stmt {
     self.debugPrint("Seems like a " ++ kind ++ " declare block...\n", .{});
 
-    var identifier: Token = undefined;
-
-    if (self.consume(.Identifier)) |it| {
-        identifier = it;
-    } else {
-        self.has_error = true;
-        report.errorToken(self.peek(), "Expect " ++ kind ++ " name.");
-        return ParserError.InvalidFunctionComposition;
-    }
-
-    self.debugPrint("Identifier name is {s}.\n", .{ identifier.toString() });
-
     if (self.consume(.LeftParen) == null) {
         self.has_error = true;
-        report.errorToken(self.peek(), "Expect '(' after the " ++ kind ++ " name.");
+        report.errorToken(self.peek(), "Declaring a " ++ kind ++ 
+            " should be denoted with '(' after the constant identifier '::'.");
         return ParserError.InvalidFunctionComposition;
     }
 
@@ -159,7 +160,8 @@ fn functionDeclareStmt(
             try params.append(it);
         } else {
             self.has_error = true;
-            report.errorToken(self.peek(), "Expect an identifier as a " ++ kind ++ " parameter.");
+            report.errorToken(self.peek(), "Expect an identifier as a " ++ kind ++ 
+                " parameter name.");
             return ParserError.InvalidFunctionComposition;
         }
         _ = self.advanceIfMatched(.Comma);
@@ -167,7 +169,8 @@ fn functionDeclareStmt(
 
     if (self.consume(.RightParen) == null) {
         self.has_error = true;
-        report.errorToken(self.peek(), "Expect ')' after the end of " ++ kind ++ " parameters.");
+        report.errorToken(self.peek(), "Missing ')' at the end of the " ++ kind ++ 
+            " declaration parameters.");
         return ParserError.InvalidFunctionComposition;
     }
 
@@ -180,7 +183,8 @@ fn functionDeclareStmt(
 
     if (self.consume(.LeftBrace) == null) {
         self.has_error = true;
-        report.errorToken(self.peek(), "Expect '{' after the " ++ kind ++ " body.");
+        report.errorToken(self.peek(), "Expect '{' to denote the start of the " ++ 
+            kind ++ " body.");
         return ParserError.InvalidFunctionComposition;
     }
 
@@ -200,8 +204,6 @@ fn statement(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
         return try self.printStmt(allocator);
     } else if (self.advanceIfMatched(.If)) {
         return try self.ifStmt(allocator);
-    } else if (self.advanceIfMatched(.While)) {
-        return try self.whileStmt(allocator);
     } else if (self.advanceIfMatched(.For)) {
         return try self.forStmt(allocator);
     } else if (self.advanceIfMatched(.Return)) {
@@ -243,19 +245,8 @@ fn printStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
 
 fn ifStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
     self.debugPrint("Seems like an if statement block...\n", .{});
-    if (self.consume(.LeftParen) == null) {
-        self.has_error = true;
-        report.errorToken(self.peek(), "Expect '(' before the 'if' condition.");
-        return ParserError.InvalidBranchComposition;
-    }
 
     const condition = try self.expression(allocator);
-
-    if (self.consume(.RightParen) == null) {
-        self.has_error = true;
-        report.errorToken(self.peek(), "Expect ')' after the 'if' condition.");
-        return ParserError.InvalidBranchComposition;
-    }
 
     const then_branch = try self.statement(allocator);
     var else_branch: ?*ast.Stmt = null;
@@ -267,41 +258,18 @@ fn ifStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
     return if_stmt;
 }
 
-fn whileStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
-    self.debugPrint("Seems like a while statement block...\n", .{});
-    if (self.consume(.LeftParen) == null) {
-        self.has_error = true;
-        report.errorToken(self.peek(), "Expect '(' after the 'while' condition.");
-        return ParserError.InvalidLoopComposition;
-    }
-
-    const condition = try self.expression(allocator);
-
-    if (self.consume(.RightParen) == null) {
-        self.has_error = true;
-        report.errorToken(self.peek(), "Expect ')' after the 'while' condition.");
-        return ParserError.InvalidLoopComposition;
-    }
-
-    const body = try self.statement(allocator);
-
-    const while_stmt = try ast.createWhileStmt(allocator, condition, body);
-    return while_stmt;
-}
-
 fn forStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
     self.debugPrint("Seems like a for statement block...\n", .{});
-    if  (self.consume(.LeftParen) == null) {
-        self.has_error = true;
-        report.errorToken(self.peek(), "Expect '(' after 'for'.");
-        return ParserError.InvalidLoopComposition;
-    }
+
+    const identifier, const next_token = self.peekTwo() catch unreachable;
 
     var initializer: ?*ast.Stmt = null;
     if (self.advanceIfMatched(.Semicolon)) {
         initializer = null;
-    } else if (self.advanceIfMatched(.Var)) {
-        initializer = try self.variableDeclareStmt(allocator);
+    } else if (identifier.token_type == .Identifier and next_token.token_type == .ColonEqual) {
+        _ = self.advance();
+        _ = self.advance();
+        initializer = try self.variableDeclareStmt(allocator, identifier);
     } else {
         initializer = try self.expressionStmt(allocator);
     }
@@ -319,12 +287,12 @@ fn forStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
     }
 
     var increment: ?*ast.Expr = null;
-    if (!self.check(.RightParen)) {
+    if (!self.check(.Semicolon)) {
         increment = try self.expression(allocator);
     }
-    if (self.consume(.RightParen) == null) {
+    if (self.consume(.Semicolon) == null) {
         self.has_error = true;
-        report.errorToken(self.peek(), "Expect ')' after the 'for' clauses.");
+        report.errorToken(self.peek(), "Expect ';' after the 'for' loop increment expression.");
         return ParserError.InvalidLoopComposition;
     }
 
@@ -343,7 +311,7 @@ fn forStmt(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
     loop_body.* = ast.Stmt{
         .block_stmt = body_block,
     };
-    const for_loop = try ast.createWhileStmt(allocator, condition, loop_body);
+    const for_loop = try ast.createLoopStmt(allocator, condition, loop_body);
 
     if (initializer) |it| {
         var for_loop_initialized = ast.BlockStmt.init(allocator);
@@ -665,7 +633,7 @@ fn unary(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
         return expr;
     }
 
-    const func = try self.funcCall(allocator);
+    const func = try self.functionCall(allocator);
 
     if (self.debug_print) {
         debug.print("Unary done with function call.\n", .{});
@@ -673,14 +641,14 @@ fn unary(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
     return func;
 }
 
-fn funcCall(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
+fn functionCall(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
     var expr = try self.primary(allocator);
 
     while (true) {
         if (self.advanceIfMatched(.LeftParen)) {
             // NOTE(yemon): Would the original `expr` be leaking, if there were
             // multiple call chains and `expr` is replaced on each call iteration
-            expr = try self.finishCall(allocator, expr);
+            expr = try self.finishFunctionCall(allocator, expr);
 
             if (self.debug_print) {
                 debug.print("Function call done on sub-expression:\n", .{});
@@ -698,13 +666,14 @@ fn funcCall(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
     return expr;
 }
 
-fn finishCall(self: *Self, allocator: Allocator, callee: *ast.Expr) ParserError!*ast.Expr {
+fn finishFunctionCall(self: *Self, allocator: Allocator, callee: *ast.Expr) ParserError!*ast.Expr {
     self.debugPrint("Parsing the function arguments...\n", .{});
     var arguments = std.ArrayList(*ast.Expr).init(allocator);
 
     if (!self.check(.RightParen)) {
         var arg = try self.expression(allocator);
         try arguments.append(arg);
+
         // NOTE(yemon): two identifier tokens NOT separated by 'comma' could be an issue
         while (self.advanceIfMatched(.Comma)) {
             if (arguments.items.len > 255) {
@@ -735,7 +704,7 @@ fn primary(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
     const current_token = self.peek();
     self.debugPrint("Primary... {s}\n", .{ current_token.toString() });
 
-    if (self.check(TokenType.Number)) {
+    if (self.check(.Number)) {
         _ = self.advance();
 
         const literal = if (current_token.literal) |it| it else "0";
@@ -751,7 +720,7 @@ fn primary(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
         return int_lit;
     }
 
-    if (self.check(TokenType.NumberFractional)) {
+    if (self.check(.NumberFractional)) {
         _ = self.advance();
 
         const literal = if (current_token.literal) |it| it else "0";
@@ -767,7 +736,7 @@ fn primary(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
         return double_lit;
     }
 
-    if (self.check(TokenType.String)) {
+    if (self.check(.String)) {
         _ = self.advance();
         if (current_token.literal) |literal| {
             const string_lit = try ast.createStringLiteral(allocator, literal);
@@ -782,7 +751,7 @@ fn primary(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
         }
     }
     
-    if (self.check(TokenType.True)) {
+    if (self.check(.True)) {
         _ = self.advance();
         const true_lit = try ast.createLiteral(allocator, ast.LiteralExpr{
             .boolean = true,
@@ -794,7 +763,7 @@ fn primary(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
         }
         return true_lit;
     }
-    if (self.check(TokenType.False)) {
+    if (self.check(.False)) {
         _ = self.advance();
         const false_lit = try ast.createLiteral(allocator, ast.LiteralExpr{
             .boolean = false,
@@ -806,7 +775,7 @@ fn primary(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
         }
         return false_lit;
     }
-    if (self.check(TokenType.Nil)) {
+    if (self.check(.Nil)) {
         _ = self.advance();
         const nil_lit = try ast.createLiteral(allocator, ast.LiteralExpr{
             .nil = true,
@@ -819,7 +788,7 @@ fn primary(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
         return nil_lit;
     }
 
-    if (self.check(TokenType.LeftParen)) {
+    if (self.check(.LeftParen)) {
         _ = self.advance();
 
         const inner_expr = try self.expression(allocator);
@@ -840,7 +809,7 @@ fn primary(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
         return group;
     }
 
-    if (self.check(TokenType.Identifier)) {
+    if (self.check(.Identifier)) {
         _ = self.advance();
         const variable = try ast.createVariableExpr(allocator, current_token);
 
@@ -903,6 +872,14 @@ fn peek(self: *const Self) Token {
     return self.tokens.*.items[self.current];
 }
 
+fn peekTwo(self: *const Self) !struct{ Token, Token } {
+    if (self.current <= self.tokens.*.items.len-2) {
+        const current_token = self.peek();
+        const next_token = self.tokens.*.items[self.current+1];
+        return .{ current_token, next_token };
+    } else return error.InsufficientTokens;
+}
+
 fn previous(self: *const Self) ?Token {
     if (self.current == 0) {
         return null;
@@ -927,12 +904,8 @@ fn synchronize(self: *Self) ParserError!void {
         }
 
         switch (current_token.token_type) {
-            .Class => return,
-            .Function => return,
-            .Var => return,
             .If => return,
             .For => return,
-            .While => return,
             .Print => return,
             .Return => return,
             else => continue,
