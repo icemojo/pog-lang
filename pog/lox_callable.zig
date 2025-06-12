@@ -32,7 +32,10 @@ pub const LoxFunction = struct {
         func_args: ?std.ArrayList(Value)
     ) EvaluateResult {
         const func_env = Environment.init(allocator, interpreter.env);
-        defer allocator.destroy(func_env);
+        defer {
+            func_env.deinit();
+            allocator.destroy(func_env);
+        }
 
         if (self.declaration.params != null and func_args != null) {
             const params = self.declaration.params.?;

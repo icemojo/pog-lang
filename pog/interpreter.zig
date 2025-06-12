@@ -59,6 +59,13 @@ fn initBuiltins(self: *Self, allocator: Allocator) !void {
     try self.global_env.*.define("__name__", Value{ .string = test_name });
 }
 
+// NOTE(yemon): It's important to pass the same allocator that was used to 
+// call `init()` into this as well, otherwise things would be bad.
+pub fn deinit(self: *Self, allocator: Allocator) void {
+    self.global_env.deinit();
+    allocator.destroy(self.global_env);
+}
+
 fn evaluateStatement(
     self: *Self, allocator: Allocator, stmt: *const ast.Stmt
 ) EvaluateResult {
@@ -843,6 +850,7 @@ pub fn executeBlock(
 
     defer {
         self.env = parent_env;
+        block_env.deinit();
         allocator.destroy(block_env);
         self.current_depth -= 1;
     }

@@ -35,7 +35,7 @@ pub fn main() void {
     var interpreter = Interpreter.init(allocator);
     interpreter.debug_print = options.verbose;
     interpreter.debug_env = options.show_env;
-    // defer allocator.destroy(interpreter.env);
+    defer interpreter.deinit(allocator);
 
     if (options.input_file_path) |input_file_path| {
         runFile(allocator, &interpreter, input_file_path, &options);
@@ -68,7 +68,10 @@ const Repl = struct {
         }
 
         const repl_env = Environment.init(allocator, self.interpreter.*.global_env);
-        defer allocator.destroy(repl_env);
+        defer {
+            repl_env.deinit();
+            allocator.destroy(repl_env);
+        }
         self.interpreter.env = repl_env;
 
         // NOTE(yemon): Generally, the REPL should be working within the bounds
