@@ -495,7 +495,7 @@ fn evaluateBinaryExpr(
                 report.arithmeticError(allocator, "Substraction has to be between numbers.", 
                     left_value.getTypeName(), right_value.getTypeName()
                 );
-                return Value{ .nil = true };
+                return RuntimeError.EvaluationFailed;
             }
 
             const result = left_value.doArithmetic(right_value, .substract)
@@ -503,7 +503,7 @@ fn evaluateBinaryExpr(
                     report.arithmeticError(allocator, "Unable to do substraction.", 
                         left_value.getTypeName(), right_value.getTypeName()
                     );
-                    return Value{ .nil = true };
+                    return RuntimeError.EvaluationFailed;
                 };
             return result;
         },
@@ -515,7 +515,7 @@ fn evaluateBinaryExpr(
                         report.arithmeticError(allocator, "Addition has to be between numbers.", 
                             left_value.getTypeName(), right_value.getTypeName()
                         );
-                        return Value{ .nil = true };
+                        return RuntimeError.EvaluationFailed;
                     }
 
                     const result = left_value.doArithmetic(right_value, .addition)
@@ -523,7 +523,7 @@ fn evaluateBinaryExpr(
                             report.arithmeticError(allocator, "Unable to do addition.",
                                 left_value.getTypeName(), right_value.getTypeName()
                             );
-                            return Value{ .nil = true };
+                            return RuntimeError.EvaluationFailed;
                         };
                     return result;
                 },
@@ -540,7 +540,7 @@ fn evaluateBinaryExpr(
                 },
                 else => {
                     report.runtimeError("Invalid operand types to do an addition.");
-                    return Value{ .nil = true };
+                    return RuntimeError.EvaluationFailed;
                 }
             }
         },
@@ -550,7 +550,7 @@ fn evaluateBinaryExpr(
                 report.arithmeticError(allocator, "Division has to be between numbers.", 
                     left_value.getTypeName(), right_value.getTypeName()
                 );
-                return Value{ .nil = true };
+                return RuntimeError.EvaluationFailed;
             }
 
             const result = left_value.doArithmetic(right_value, .divide)
@@ -558,7 +558,7 @@ fn evaluateBinaryExpr(
                     report.arithmeticError(allocator, "Unable to do division.",
                         left_value.getTypeName(), right_value.getTypeName()
                     );
-                    return Value{ .nil = true };
+                    return RuntimeError.EvaluationFailed;
                 };
             return result;
         },
@@ -568,7 +568,7 @@ fn evaluateBinaryExpr(
                 report.arithmeticError(allocator, "Multiplication has to be between numbers.", 
                     left_value.getTypeName(), right_value.getTypeName()
                 );
-                return Value{ .nil = true };
+                return RuntimeError.EvaluationFailed;
             }
 
             const result = left_value.doArithmetic(right_value, .multiply)
@@ -576,7 +576,7 @@ fn evaluateBinaryExpr(
                     report.arithmeticError(allocator, "Unable to do multiplication.",
                         left_value.getTypeName(), right_value.getTypeName()
                     );
-                    return Value{ .nil = true };
+                    return RuntimeError.EvaluationFailed;
                 };
             return result;
         },
@@ -595,7 +595,7 @@ fn evaluateBinaryExpr(
                 report.comparisonError(allocator, 
                     left_value.getTypeName(), right_value.getTypeName()
                 );
-                return Value{ .nil = true };
+                return RuntimeError.EvaluationFailed;
             }
 
             return left_value.doComparison(right_value, .lesser) 
@@ -606,7 +606,7 @@ fn evaluateBinaryExpr(
                 report.comparisonError(allocator, 
                     left_value.getTypeName(), right_value.getTypeName()
                 );
-                return Value{ .nil = true };
+                return RuntimeError.EvaluationFailed;
             }
 
             return left_value.doComparison(right_value, .lesser_equal)
@@ -618,7 +618,7 @@ fn evaluateBinaryExpr(
                 report.comparisonError(allocator, 
                     left_value.getTypeName(), right_value.getTypeName()
                 );
-                return Value{ .nil = true };
+                return RuntimeError.EvaluationFailed;
             }
 
             return left_value.doComparison(right_value, .greater) 
@@ -629,7 +629,7 @@ fn evaluateBinaryExpr(
                 report.comparisonError(allocator, 
                     left_value.getTypeName(), right_value.getTypeName()
                 );
-                return Value{ .nil = true };
+                return RuntimeError.EvaluationFailed;
             }
 
             return left_value.doComparison(right_value, .greater_equal)
@@ -638,7 +638,7 @@ fn evaluateBinaryExpr(
 
         else => {
             report.runtimeError("Unknown binary operation.");
-            return Value{ .nil = true };
+            return RuntimeError.EvaluationFailed;
         }
     }
 }
