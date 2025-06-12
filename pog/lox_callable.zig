@@ -6,7 +6,7 @@ const Allocator = @import("std").mem.Allocator;
 const ast = @import("ast.zig");
 const Value = @import("value.zig").Value;
 const Interpreter = @import("interpreter.zig");
-const Environment = @import("interpreter.zig").Environment;
+const Environment = @import("env.zig");
 const EvaluateResult = @import("interpreter.zig").EvaluateResult;
 
 // 1) free functions can be called

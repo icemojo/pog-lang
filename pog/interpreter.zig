@@ -6,6 +6,7 @@ const Allocator = @import("std").mem.Allocator;
 const report = @import("report.zig");
 const ast = @import("ast.zig");
 const Value = @import("value.zig").Value;
+const Environment = @import("env.zig");
 const LoxFunction = @import("lox_callable.zig").LoxFunction;
 
 fn concatStrings(allocator: Allocator, string1: []u8, string2: []u8) Value {
@@ -16,10 +17,9 @@ fn concatStrings(allocator: Allocator, string1: []u8, string2: []u8) Value {
 
 // NOTE(yemon): Runtime errors should probably return, attached with a proper message
 // since they should probably be presented and visible to the user.
-const RuntimeError = error {
+pub const RuntimeError = error {
     UndefinedIdentifier,
-    AlreadyDefinedVariable,
-    AlreadyDefinedFunction,
+    AlreadyDefinedIdentifier,
     DefinitionFailed,
     EvaluationFailed,
 };
@@ -53,7 +53,7 @@ fn initBuiltins(self: *Self, allocator: Allocator) !void {
     // `clock_func` should return this when called:
     // `(double)System.currentTimeMillis() / 1000.0;` with arity 0
     // const clock_func = LoxCallable().init(allocator, "clock");
-    // try self.global_env.defineFunction("clock", clock_func);
+    // try self.global_env.define("clock", clock_func);
 
     const test_name: []u8 = @constCast("test.lox");
     try self.global_env.*.define("__name__", Value{ .string = test_name });
@@ -221,7 +221,7 @@ fn evaluateStatement(
 
                 self.env.*.define(name, value) catch |err| {
                     switch (err) {
-                        RuntimeError.AlreadyDefinedVariable => {
+                        RuntimeError.AlreadyDefinedIdentifier => {
                             report.runtimeErrorAlloc(allocator, 
                                 "Variable identifier of name '{s}' already exists.", .{ name }
                             );
@@ -235,7 +235,7 @@ fn evaluateStatement(
             } else {
                 self.env.*.define(name, Value{ .nil = true }) catch |err| {
                     switch (err) {
-                        RuntimeError.AlreadyDefinedVariable => {
+                        RuntimeError.AlreadyDefinedIdentifier => {
                             report.runtimeErrorAlloc(allocator, 
                                 "Variable identifier of name '{s}' already exists.", .{ name }
                             );
@@ -262,7 +262,7 @@ fn evaluateStatement(
             self.debugPrint("Evaluating the function declaration statement '{s}'...\n", .{ name });
 
             const function = LoxFunction.init(func_declare_stmt);
-            self.env.*.defineFunction(name, function) catch {
+            self.env.*.define(name, .{ .function = function }) catch {
                 report.runtimeError("Function declaration failed for unknown reason.");
             };
             return .{ .no_return = true };
@@ -921,91 +921,9 @@ pub fn executeBlockEnv(
             }
         }
     }
-    
+
     return block_eval;
 }
-
-// It's kinda rare in for language to have both the variables and function declarations
-// to NOT live in the same namespace. (e.g., Common Lisp). 
-// If the functions need to be "first-class citizens", they both have to exist 
-// in the same namespace.
-pub const Environment = struct {
-    enclosing: ?*Environment,
-    values: std.StringHashMap(Value),
-
-    pub fn init(allocator: Allocator, enclosing: ?*Environment) *Environment {
-        const env = allocator.create(Environment) catch unreachable;
-        env.*.enclosing = enclosing;
-        env.*.values = std.StringHashMap(Value).init(allocator);
-        return env;
-    }
-
-    pub fn define(self: *Environment, name: []const u8, value: Value) !void {
-        if (self.alreadyDefined(name)) {
-            return RuntimeError.AlreadyDefinedVariable;
-        }
-        try self.values.put(name, value);
-    }
-
-    fn defineFunction(self: *Environment, name: []const u8, function: LoxFunction) !void {
-        try self.values.put(name, Value{
-            .function = function,
-        });
-    }
-
-    fn assign(self: *Environment, name: []const u8, value: Value) !void {
-        if (!self.alreadyDefined(name)) {
-            if (self.enclosing) |enclosing| {
-                return try enclosing.*.assign(name, value);
-            } else {
-                // NOTE(yemon): Already at the top most (global) scope
-                return RuntimeError.UndefinedIdentifier;
-            }
-        }
-        self.values.put(name, value) catch return RuntimeError.DefinitionFailed;
-    }
-
-    fn getValue(self: *const Environment, name: []const u8) !Value {
-        if (self.values.get(name)) |value| {
-            return value;
-        } else {
-            if (self.enclosing) |it| {
-                return it.*.getValue(name);
-            } else {
-                // NOTE(yemon): Already at the top most (global) scope
-                return RuntimeError.UndefinedIdentifier;
-            }
-        }
-    }
-
-    fn alreadyDefined(self: *const Environment, name: []const u8) bool {
-        if (self.values.get(name)) |_| {
-            return true;
-        } else {
-            return false;
-        }
-    }
-
-    pub fn display(self: *const Environment) void {
-        debug.print("[Env: ", .{});
-        var iter = self.values.iterator();
-        while (iter.next()) |entry| {
-            const key: []const u8 = entry.key_ptr.*;
-            const value: Value = entry.value_ptr.*;
-            debug.print("{s}=", .{ key });
-            value.display(true);
-            debug.print(" | ", .{});
-        }
-        debug.print("]", .{});
-
-        if (self.enclosing) |enclosing| {
-            debug.print(" ", .{});
-            enclosing.*.display();
-        } else {
-             debug.print("\n", .{});
-        }
-    }
-};
 
 fn debugPrint(self: *const Self, comptime fmt_msg: []const u8, args: anytype) void {
     if (!self.debug_print) {
@@ -1014,3 +932,4 @@ fn debugPrint(self: *const Self, comptime fmt_msg: []const u8, args: anytype) vo
     debug.print("[DEPTH {}]   ", .{ self.current_depth });
     debug.print(fmt_msg, args);
 }
+

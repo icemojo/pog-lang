@@ -7,7 +7,7 @@ const lexer       = @import("lexer.zig");
 const ast         = @import("ast.zig");
 const Parser      = @import("parser.zig");
 const Interpreter = @import("interpreter.zig");
-const Environment = @import("interpreter.zig").Environment;
+const Environment = @import("env.zig");
 
 pub fn main() void {
     // NOTE(yemon): Maybe the repl could use an arena allocator, 
