@@ -13,21 +13,21 @@ const EvaluateResult = @import("interpreter.zig").EvaluateResult;
 // 2) class 'member functions' can be called in scope of its instance
 // 3) 'class definitions' can be called to construct a new instance
 
-pub const LoxFunction = struct {
+pub const PogFunction = struct {
     declaration: ast.FunctionDeclareStmt,
 
-    pub fn init(func_declare_stmt: ast.FunctionDeclareStmt) LoxFunction {
+    pub fn init(func_declare_stmt: ast.FunctionDeclareStmt) PogFunction {
         return .{
             .declaration = func_declare_stmt,
         };
     }
 
-    pub fn arity(self: LoxFunction) usize {
+    pub fn arity(self: PogFunction) usize {
         return if (self.declaration.params) |params| params.items.len else 0;
     }
 
     pub fn call(
-        self: *const LoxFunction, allocator: Allocator,
+        self: *const PogFunction, allocator: Allocator,
         interpreter: *Interpreter, 
         func_args: ?std.ArrayList(Value)
     ) EvaluateResult {
@@ -55,12 +55,12 @@ pub const LoxFunction = struct {
         return func_eval_result;
     }
 
-    pub fn display(self: LoxFunction) void {
+    pub fn display(self: PogFunction) void {
         const name = if (self.declaration.name.lexeme) |lexeme| lexeme else "NA";
         debug.print("<fun {s} *{}>", .{ name, self.arity() });
     }
 
-    pub fn toString(self: LoxFunction, allocator: Allocator) []const u8 {
+    pub fn toString(self: PogFunction, allocator: Allocator) []const u8 {
         const name = if (self.declaration.name.lexeme) |lexeme| lexeme else "NA";
         return std.fmt.allocPrint(allocator, "<fun {s} *{}>", .{ name, self.arity() })
             catch "<fun ->";
