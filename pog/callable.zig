@@ -66,3 +66,43 @@ pub const PogFunction = struct {
             catch "<fun ->";
     }
 };
+
+pub const PogStruct = struct {
+    name: []const u8,
+    declaration: ast.StructDeclareStmt,
+
+    pub fn call(self: *const PogStruct, allocator: Allocator) PogInstance {
+        _ = self;
+        _ = allocator;
+        const instance = PogInstance.init();
+        return instance;
+    }
+
+    pub fn display(self: *const PogStruct) void {
+        _ = self;
+        debug.print("<struct >", .{});
+    }
+};
+
+pub const PogInstance = struct {
+    //pog_struct: *const PogStruct,
+    //name: Token,
+    name: []u8,
+    fields: std.StringHashMap(Value),
+
+    pub fn init(allocator: Allocator) PogInstance {
+        const instance: PogInstance = .{
+            .fields = .init(allocator),
+        };
+        return instance;
+    }
+
+    pub fn deinit(self: *const PogInstance) void {
+        self.fields.deinit();
+    }
+
+    pub fn toString(self: PogInstance) void {
+        debug.print("{s} instance", .{ self.pog_struct.name });
+    }
+};
+
