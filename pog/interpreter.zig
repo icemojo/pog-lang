@@ -7,7 +7,7 @@ const report = @import("report.zig");
 const ast = @import("ast.zig");
 const Value = @import("value.zig").Value;
 const Environment = @import("env.zig");
-const LoxFunction = @import("lox_callable.zig").LoxFunction;
+const PogFunction = @import("callable.zig").PogFunction;
 
 fn concatStrings(allocator: Allocator, string1: []u8, string2: []u8) Value {
     const target_string = std.fmt.allocPrint(allocator, "{s}{s}", .{ string1, string2 })
@@ -55,7 +55,7 @@ fn initBuiltins(self: *Self, allocator: Allocator) !void {
     // const clock_func = LoxCallable().init(allocator, "clock");
     // try self.global_env.define("clock", clock_func);
 
-    const test_name: []u8 = @constCast("test.lox");
+    const test_name: []u8 = @constCast("test.pog");
     try self.global_env.*.define("__name__", Value{ .string = test_name });
 }
 
@@ -268,7 +268,7 @@ fn evaluateStatement(
 
             self.debugPrint("Evaluating the function declaration statement '{s}'...\n", .{ name });
 
-            const function = LoxFunction.init(func_declare_stmt);
+            const function = PogFunction.init(func_declare_stmt);
             self.env.*.define(name, .{ .function = function }) catch {
                 report.runtimeError("Function declaration failed for unknown reason.");
             };
