@@ -1,0 +1,25 @@
+say_something :: () {
+	print "I'm not giving you anything!";
+}
+
+r := say_something();
+print r;
+
+get_double :: (num) {
+	return num*2;
+}
+
+add :: (a, b) {
+	return a+b;
+}
+
+a := 12;
+b := 24;
+sum := add(a, b);
+print "Will add " + a + " to " + b + ":";
+print sum;
+
+scale := get_double(2);
+print "...and scale it up by " + scale + ":";
+print sum*scale;
+

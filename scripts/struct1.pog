@@ -1,0 +1,22 @@
+Person :: { name; age; score; }
+
+say_hello :: (person) {
+    print "Hello there, " + person.name + " of the age " + age;
+    if person.score > 100 {
+        print "Wow, you've done a great job!";
+    } else {
+        print "Better luck next time!";
+    }
+}
+
+person :Person = { "Ye Mon Aung", 34, 1024 };
+person2 := Person{ "Kyin San Nyan", 34, 1000 };
+say_hello(person);
+say_hello(person2);
+
+person := {
+	name: "Ye Mon Aung",
+	age: 34,
+	score: 1024,
+};
+

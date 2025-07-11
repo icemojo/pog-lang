@@ -1,0 +1,12 @@
+a := 12;
+name := "icemojo";
+
+b := a * 12;
+result := a + b;
+
+print "Well, hello there, " + name + "!";
+print "This is what result of a=" + a + " + b=" + b + " is " + result;
+
+b = b * 2;
+result = a + b;
+print "After doubling b to " + b + ", this is what result is now, " + result;

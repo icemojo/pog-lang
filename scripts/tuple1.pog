@@ -1,0 +1,10 @@
+person := ("Ye Mon Aung", 34, 1024);
+print "Well hello there, " + person.0 + " with the age of " + person.1;
+print "You've done a good job so far, scoring " + person.2;
+
+name, age, score := person;
+print "Well hello there, " + name + " with the age of " + age;
+print "You've done a good job so far, scoring " + score;
+
+name, age = person;
+print "Well hello there, " + name + " with the age of " + age;

@@ -1,0 +1,11 @@
+do_something :: (with_this, arg) {
+	print "Doing something with this...";
+	with_with(arg);
+}
+
+say_hello :: (name) {
+	print "Well, hello there, " + name + "!";
+}
+
+do_something(say_hello, "Icemojo");
+

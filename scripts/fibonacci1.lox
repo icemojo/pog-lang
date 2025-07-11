@@ -1,0 +1,15 @@
+fun fib(n) {
+    if (n <= 1) { return n; }
+    return fib(n-1) + fib(n-2);
+}
+
+var cap = 32;
+print "Generating fibonacci number of " + cap + " integers...";
+print fib(cap);
+return;
+
+print "Benchmarking fibonacci number of " + cap + " integers...";
+//var before = clock();
+//print fib(cap);
+//var after = clock();
+//print after - before;
