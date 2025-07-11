@@ -1,0 +1,21 @@
+age := 45;
+
+print "Your age is";
+print age;
+if age >= 30 {
+    print "You're in your prime time.";
+    if age >= 40 {
+        print "But, maybe tone down your adventurious days a little bit...";
+    }
+} else {
+    print "You still have a lot to learn in life.";
+}
+
+print "Re-assigning age...";
+age = 24;
+print "...to " + age;
+
+print "Hi!" or 21;       // "Hi!"
+print nil or "Yes!";     // "Yes!"
+
+print ((age <= 33) and "Looking good!");

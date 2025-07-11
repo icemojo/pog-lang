@@ -1,0 +1,24 @@
+a := "global a";
+b := "global b";
+c := "global c";
+
+print "  1) " + a + ", " + b + ", " + c;
+
+{ 
+    a := "outer a";
+    b := "outer b";
+    c := "outer c";
+
+    print "  2) " + a + ", " + b + ", " + c;
+
+    {
+        a := "inner a";
+        b := "inner b";
+
+        print "  3) " + a + ", " + b + ", " + c;
+    }
+
+    print "  4) " + a + ", " + b + ", " + c;
+}
+
+print "  5) " + a + ", " + b + ", " + c;

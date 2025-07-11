@@ -1,0 +1,12 @@
+age := 34;
+
+print "Your age is";
+print age;
+if age > 30 {
+    print "You are still in your prime time!";
+}
+
+age = 21;
+print "You are is now " + age;
+
+print "Noice!";
