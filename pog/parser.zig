@@ -1,13 +1,13 @@
-const std       = @import("std");
-const fmt       = @import("std").fmt;
-const debug     = @import("std").debug;
+const std = @import("std");
+const fmt = @import("std").fmt;
+const debug = @import("std").debug;
 const Allocator = @import("std").mem.Allocator;
 
-const lexer     = @import("lexer.zig");
-const Token     = @import("lexer.zig").Token;
+const lexer = @import("lexer.zig");
+const Token = @import("lexer.zig").Token;
 const TokenType = @import("lexer.zig").TokenType;
-const ast       = @import("ast.zig");
-const report    = @import("report.zig");
+const ast = @import("ast.zig");
+const report = @import("report.zig");
 const ArithmeticOp = @import("value.zig").ArithmeticOp;
 
 // NOTE(yemon): Inferred error sets are not compatible with
