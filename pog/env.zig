@@ -74,10 +74,10 @@ fn alreadyDefined(self: *const Environment, name: []const u8) bool {
 }
 
 pub fn display(self: *const Environment) void {
-    debug.print("[Env: ", .{});
+    debug.print("[", .{});
     for (self.values.items) |item| {
         debug.print("{s}=", .{ item.name });
-        item.value.display(false);
+        item.value.display(true);
         debug.print(" | ", .{});
     }
     debug.print("]", .{});
