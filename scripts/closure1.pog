@@ -1,0 +1,20 @@
+a := "global";
+
+{
+	show_a :: () {
+		print a;
+	}
+
+	// [] [show_a=<fun show_a *0> | ] [a="global" | ] [...]
+	show_a();				// should be "global"
+
+	a := "block";
+	print a + " <- ONLY";	// should be "block"
+
+	// [] [show_a=<fun show_a *0> | a="block" | ] [a="global" | ] [...]
+	show_a();				// should be "global", because "a" should be 
+				    		// captured during the function declaration
+}
+
+print a;					// should be "global", because outer scope
+

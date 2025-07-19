@@ -6,6 +6,7 @@ const options = @import("options.zig");
 const lexer = @import("lexer.zig");
 const ast = @import("ast.zig");
 const Parser = @import("parser.zig");
+const sem = @import("semantics.zig");
 const Interpreter = @import("interpreter.zig");
 const Environment = @import("env.zig");
 
@@ -58,7 +59,10 @@ const Repl = struct {
         };
     }
 
-    fn start(self: *Repl, allocator: Allocator, cmd_options: *const options.CmdOptions) void {
+    fn start(
+        self: *Repl, allocator: Allocator, 
+        cmd_options: *const options.CmdOptions
+    ) void {
         const stdin = std.io.getStdIn().reader();
 
         debug.print("Lox interpreter implementation.\n", .{});
@@ -80,7 +84,9 @@ const Repl = struct {
         var input_buffer: []u8 = undefined;
         while (!self.should_quit) {
             debug.print(">> ", .{});
-            input_buffer = stdin.readUntilDelimiterAlloc(allocator, '\n', buffer_size) catch "";
+            input_buffer = stdin.readUntilDelimiterAlloc(
+                allocator, '\n', buffer_size
+            ) catch "";
 
             // NOTE(yemon): Freeing the input buffer invalidates the identifier of the 
             // function names (and only functions) somehow, but not with the other variable
@@ -132,7 +138,13 @@ fn runFile(
             }
         }
     }
+
     if (!has_error and statements != null) {
+        var resolver: sem.Resolver = .init(allocator);
+        sem.resolve(&resolver, allocator, statements.?) catch {
+            //
+        };
+
         _ = interpreter.*.executeBlock(allocator, statements.?);
     }
 }

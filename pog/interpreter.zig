@@ -933,6 +933,12 @@ pub fn executeBlockEnv(
     return block_eval;
 }
 
+pub fn resolve(self: *const Self, expr: *const ast.Expr, num_scopes: i32) void {
+    _ = self;
+    _ = expr;
+    _ = num_scopes;
+}
+
 fn debugPrint(self: *const Self, comptime fmt_msg: []const u8, args: anytype) void {
     if (!self.debug_print) {
         return;

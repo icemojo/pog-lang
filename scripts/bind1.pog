@@ -2,5 +2,6 @@ a := "foo";
 {
 	print a;
 	a = "bah";
+	print a;
 }
-
+print a;
