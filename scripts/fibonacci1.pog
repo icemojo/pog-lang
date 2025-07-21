@@ -1,0 +1,10 @@
+fib :: (n) {
+  if (n <= 1) { return n; }
+  return fib(n-1) + fib(n-2);
+}
+
+cap := 32;
+print "Generating fibonacci number of " + cap + " integers...";
+print fib(cap);
+return;
+

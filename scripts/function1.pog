@@ -1,0 +1,17 @@
+say_hello :: (name, age) {
+    print "Well, hello there, " + name + "!";
+    if age > 30 and age <= 40 {
+        print "You are in your prime time!";
+    } else {
+        print "This is the point where you have more time then money in your hands.";
+        print "Use it well!";
+    }
+}
+
+age := 34;
+say_hello("Ye Mon Aung", age);
+//"Hello"("Do something");
+
+print "Done?!";
+
+// TODO(yemon): test the function call within both 'while' and 'for' loops

@@ -1,6 +1,6 @@
-const std       = @import("std");
-const debug     = @import("std").debug;
-const ascii     = @import("std").ascii;
+const std = @import("std");
+const debug = @import("std").debug;
+const ascii = @import("std").ascii;
 const Allocator = @import("std").mem.Allocator;
 
 pub const TokenType = enum {

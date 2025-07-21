@@ -7,7 +7,7 @@ const report = @import("report.zig");
 const ast = @import("ast.zig");
 const Value = @import("value.zig").Value;
 const Environment = @import("env.zig");
-const LoxFunction = @import("lox_callable.zig").LoxFunction;
+const PogFunction = @import("callable.zig").PogFunction;
 
 fn concatStrings(allocator: Allocator, string1: []u8, string2: []u8) Value {
     const target_string = std.fmt.allocPrint(allocator, "{s}{s}", .{ string1, string2 })
@@ -30,16 +30,18 @@ debug_print: bool,
 debug_env: bool,
 global_env: *Environment,
 env: *Environment,
+locals: std.AutoHashMap(ast.Expr, usize),
 caller_depth: i32,
 current_depth: i32,
 
 pub fn init(allocator: Allocator) Self {
     const global_env = Environment.init(allocator, null);
-    var interpreter = Self{
+    var interpreter: Self = .{
         .debug_print = false,
         .debug_env = false,
         .global_env = global_env,
         .env = global_env,
+        .locals = .init(allocator),
         .caller_depth = -1,
         .current_depth = -1,
     };
@@ -55,7 +57,7 @@ fn initBuiltins(self: *Self, allocator: Allocator) !void {
     // const clock_func = LoxCallable().init(allocator, "clock");
     // try self.global_env.define("clock", clock_func);
 
-    const test_name: []u8 = @constCast("test.lox");
+    const test_name: []u8 = @constCast("test.pog");
     try self.global_env.*.define("__name__", Value{ .string = test_name });
 }
 
@@ -268,7 +270,7 @@ fn evaluateStatement(
 
             self.debugPrint("Evaluating the function declaration statement '{s}'...\n", .{ name });
 
-            const function = LoxFunction.init(func_declare_stmt);
+            const function = PogFunction.init(func_declare_stmt);
             self.env.*.define(name, .{ .function = function }) catch {
                 report.runtimeError("Function declaration failed for unknown reason.");
             };

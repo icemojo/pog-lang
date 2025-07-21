@@ -3,7 +3,7 @@ const debug = @import("std").debug;
 const Allocator = @import("std").mem.Allocator;
 
 const Value = @import("value.zig").Value;
-const LoxFunction = @import("lox_callable.zig").LoxFunction;
+const PogFunction = @import("callable.zig").PogFunction;
 const RuntimeError = @import("interpreter.zig").RuntimeError;
 
 const Environment = @This();
@@ -74,10 +74,10 @@ fn alreadyDefined(self: *const Environment, name: []const u8) bool {
 }
 
 pub fn display(self: *const Environment) void {
-    debug.print("[Env: ", .{});
+    debug.print("[", .{});
     for (self.values.items) |item| {
         debug.print("{s}=", .{ item.name });
-        item.value.display(false);
+        item.value.display(true);
         debug.print(" | ", .{});
     }
     debug.print("]", .{});

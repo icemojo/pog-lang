@@ -2,7 +2,7 @@ const std = @import("std");
 const debug = @import("std").debug;
 const Allocator = @import("std").mem.Allocator;
 
-const LoxFunction = @import("lox_callable.zig").LoxFunction;
+const PogFunction = @import("callable.zig").PogFunction;
 
 pub const ArithmeticOp = enum {
     substract,
@@ -48,7 +48,7 @@ pub const Value = union(enum) {
     string: []u8,
     boolean: bool,
     nil: bool,
-    function: LoxFunction,
+    function: PogFunction,
     // object: ??
 
     pub fn isTruthy(self: Value) bool {

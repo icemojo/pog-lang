@@ -1,0 +1,13 @@
+max := 32;
+print "Fibonacci time from 0 to " + max + ":";
+
+a := 0;
+b := 1;
+print "0)  " + b;
+for n := 1; n <= max; n = n+1; {
+  r := a + b;
+  print "" + n + ")  " + r;
+  a = b;
+  b = r;
+}
+

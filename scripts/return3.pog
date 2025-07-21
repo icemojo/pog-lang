@@ -1,0 +1,27 @@
+count :: (n) {
+	print "Counting down from " + n + "...";
+
+	total := 0;
+	if n < 0 {
+		print "Nothing to count!";
+	}
+
+	for ; n >= 0;; {
+		print n;
+		n = n - 1;
+		total = total + 1;
+	}
+	return total;
+}
+
+name := "Icemojo";
+print "Hello there, " + name + "!";
+
+counted := 101;
+print "'counted' initialized with " + counted;
+
+counted = count(3);
+print "Totally 'counted' " + counted + " times.";
+
+print "Done!";
+

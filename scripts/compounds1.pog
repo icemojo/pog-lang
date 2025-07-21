@@ -1,0 +1,20 @@
+print "Well hello there!";
+
+x := 12;
+print "Before: " + x;
+return;
+
+x = x - 2;
+print "Regular binary x=x-2: " + x;
+
+x += 24;
+print "After += 24: " + x;
+
+x -= 10;
+print "After -= 10: " + x;
+
+x *= 2;
+print "After *= 2:  " + x;
+
+x /= 7;
+print "After /= 7:  " + x;

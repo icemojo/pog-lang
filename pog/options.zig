@@ -2,7 +2,7 @@ const std = @import("std");
 const debug = @import("std").debug;
 const Allocator = @import("std").mem.Allocator;
 
-pub const Options = struct {
+pub const CmdOptions = struct {
     verbose: bool,
     show_help: bool,
     show_tokens: bool,
@@ -12,14 +12,14 @@ pub const Options = struct {
     input_file_path: ?[]u8,
 };
 
-pub fn parseOptions(allocator: Allocator) Options {
+pub fn parseOptions(allocator: Allocator) CmdOptions {
     const eql = std.mem.eql;
 
     // NOTE(yemon): `unreachable` generates a panic in Debug and ReleaseSafe build modes.
     const args = std.process.argsAlloc(allocator) catch unreachable;
     defer std.process.argsFree(allocator, args);
 
-    var options = Options{
+    var options = CmdOptions{
         .verbose = false,
         .show_help = false,
         .show_tokens = false,
@@ -118,3 +118,4 @@ pub fn openReadFile(allocator: Allocator, input_file_path: []const u8, verbose: 
     @memcpy(contents, buffer[0..bytes_read]);
     return contents;
 }
+
