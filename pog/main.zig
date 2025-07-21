@@ -140,7 +140,7 @@ fn runFile(
     }
 
     if (!has_error and statements != null) {
-        var resolver: sem.Resolver = .init(allocator);
+        var resolver: sem.Resolver = .init(allocator, interpreter);
         sem.resolve(&resolver, allocator, statements.?) catch {
             //
         };

@@ -30,16 +30,18 @@ debug_print: bool,
 debug_env: bool,
 global_env: *Environment,
 env: *Environment,
+locals: std.AutoHashMap(ast.Expr, usize),
 caller_depth: i32,
 current_depth: i32,
 
 pub fn init(allocator: Allocator) Self {
     const global_env = Environment.init(allocator, null);
-    var interpreter = Self{
+    var interpreter: Self = .{
         .debug_print = false,
         .debug_env = false,
         .global_env = global_env,
         .env = global_env,
+        .locals = .init(allocator),
         .caller_depth = -1,
         .current_depth = -1,
     };
@@ -931,12 +933,6 @@ pub fn executeBlockEnv(
     }
 
     return block_eval;
-}
-
-pub fn resolve(self: *const Self, expr: *const ast.Expr, num_scopes: i32) void {
-    _ = self;
-    _ = expr;
-    _ = num_scopes;
 }
 
 fn debugPrint(self: *const Self, comptime fmt_msg: []const u8, args: anytype) void {

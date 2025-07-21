@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 
 const report = @import("report.zig");
 const ast = @import("ast.zig");
+const Interpreter = @import("interpreter.zig");
 
 const ResolveError = error {
     Failed,
@@ -17,10 +18,12 @@ const LocalScope = std.StringHashMap(bool);
 
 pub const Resolver = struct {
     scopes: std.ArrayList(LocalScope),
+    interpreter: *Interpreter,
 
-    pub fn init(allocator: Allocator) Resolver {
+    pub fn init(allocator: Allocator, interpreter: *Interpreter) Resolver {
         return .{ 
             .scopes = .init(allocator),
+            .interpreter = interpreter,
         };
     }
 
@@ -152,7 +155,7 @@ fn resolveExpr(resolver: *Resolver, expr: *const ast.Expr) ResolveError!void {
                         "its own initializer.");
                 }
 
-                resolveLocal(resolver, expr, lexeme);
+                try resolveLocal(resolver, expr, lexeme);
             } else {
                 return ResolveError.PoorlyDefinedLexeme;
             }
@@ -160,7 +163,7 @@ fn resolveExpr(resolver: *Resolver, expr: *const ast.Expr) ResolveError!void {
 
         .assign => |assign| {
             try resolveExpr(resolver, assign.value);
-            resolveLocal(resolver, expr, assign.identifier);
+            try resolveLocal(resolver, expr, assign.identifier);
         },
 
         .binary => |binary| {
@@ -198,16 +201,20 @@ fn resolveExpr(resolver: *Resolver, expr: *const ast.Expr) ResolveError!void {
 fn resolveLocal(
     resolver: *const Resolver, 
     expr: *const ast.Expr, var_name: []const u8
-) void {
+) ResolveError!void {
     var scopes_iter = std.mem.reverseIterator(resolver.scopes.items);
-    // .{ .ptr = slice.ptr, .index = slice.len };
     while (scopes_iter.next()) |scope| {
         if (scope.contains(var_name)) {
             debug.print("  > resolver rev. iter idx: {}", .{ scopes_iter.index });
-            const num_scopes = resolver.scopes.items.len-1-scopes_iter.index;
-            _ = expr;
-            _ = num_scopes;
-            //interpreter.resolve(expr, num_scopes);
+            const depth = (resolver.scopes.items.len-1)-scopes_iter.index;
+
+            // TODO(yemon): Plainly putting in the "union" typed Expr
+            // into the hashmap key just doesn't work well in Zig, unless 
+            // an additional custom hashing mechanism were provided for each
+            // member of the union. So the book's recommended (albeit amateurish)
+            // approach of relying the language's capability to hash on the
+            // complex types just won't work in our case.
+            try resolver.interpreter.locals.put(expr.*, depth);
         }
     }
 }
