@@ -2,7 +2,9 @@ const std = @import("std");
 const debug = @import("std").debug;
 const Allocator = @import("std").mem.Allocator;
 
-const PogFunction = @import("callable.zig").PogFunction;
+const callable = @import("callable.zig");
+const PogFunction = callable.PogFunction;
+const PogObject = callable.PogObject;
 
 pub const ArithmeticOp = enum {
     substract,
@@ -49,7 +51,7 @@ pub const Value = union(enum) {
     boolean: bool,
     nil: bool,
     function: PogFunction,
-    // object: ??
+    object: PogObject,
 
     pub fn isTruthy(self: Value) bool {
         switch (self) {
@@ -97,6 +99,9 @@ pub const Value = union(enum) {
                 }
             },
             .function => {
+                return ValueError.InvalidValueComparison;
+            },
+            .object => {
                 return ValueError.InvalidValueComparison;
             },
         }
@@ -284,6 +289,9 @@ pub const Value = union(enum) {
             .function => |it| {
                 return it.toString(allocator);
             },
+            .object => |it| {
+                return it.toString(allocator);
+            },
         }
     }
 
@@ -307,17 +315,14 @@ pub const Value = union(enum) {
             .function => |it| {
                 it.display();
             },
+            .object => |it| {
+                it.display();
+            },
         }
     }
 
     pub fn getTypeName(self: Value) []const u8 {
-        return switch (self) {
-            .integer => "integer",
-            .double => "double",
-            .string => "string",
-            .boolean => "boolean",
-            .nil => "nil",
-            .function => "function",
-        };
+        return @tagName(self);
     }
 };
+

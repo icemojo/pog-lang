@@ -1,5 +1,3 @@
-Person :: { name; age; score; }
-
 say_hello :: (person) {
     print "Hello there, " + person.name + " of the age " + age;
     if person.score > 100 {
@@ -9,14 +7,25 @@ say_hello :: (person) {
     }
 }
 
-person :Person = { "Ye Mon Aung", 34, 1024 };
-person2 := Person{ "Kyin San Nyan", 34, 1000 };
-say_hello(person);
-say_hello(person2);
+//access :: (person) {
+//	person.display();
+//}
 
 person := {
 	name: "Ye Mon Aung",
 	age: 34,
 	score: 1024,
+	//display: () {
+	//  NOTE(yemon): Not a member, but more of a bound anonymous function.
+	//	print "Well, hello there, " + name + ", with the age of " + age + "!";
+	//	print "Your current score is " + score;
+	//},
 };
+
+say_hello(person);
+//access(person);
+
+print "Resetting your score " + person.score + " to 0";
+person.score = 0;
+print "The score of " + person.name + " is now " + person.score;
 

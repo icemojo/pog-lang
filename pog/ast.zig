@@ -18,6 +18,7 @@ pub const Expr = union(enum) {
     literal: LiteralExpr,
     variable: VariableExpr,
     func_call: FunctionCallExpr,
+    accessor: AccessorExpr,
 
     pub fn getTypeName(self: Expr) []const u8 {
         return switch (self) {
@@ -29,6 +30,7 @@ pub const Expr = union(enum) {
             .literal => "literal",
             .variable => "variable",
             .func_call => "function call",
+            .accessor => "field accessor",
         };
     }
 
@@ -62,6 +64,13 @@ pub const Expr = union(enum) {
             .func_call => |func_call| {
                 func_call.display(line_break);
             },
+            .accessor => |accessor| {
+                if (accessor.field.lexeme) |lexeme| {
+                    debug.print("{s}", .{ lexeme });
+                } else {
+                    debug.print("-", .{});
+                }
+            }
         }
         if (line_break) {
             debug.print("\n", .{});
@@ -329,6 +338,22 @@ pub fn createFunctionCallExpr(
             .callee = callee,
             .closing_paren = closing_paren,
             .arguments = arguments,
+        },
+    };
+    return expr;
+}
+
+pub const AccessorExpr = struct {
+    object: *Expr,
+    field: Token,
+};
+
+pub fn createAccessorExpr(allocator: Allocator, object: *Expr, field: Token) !*Expr {
+    const expr = try allocator.create(Expr);
+    expr.* = Expr{
+        .accessor = AccessorExpr{
+            .object = object,
+            .field = field,
         },
     };
     return expr;

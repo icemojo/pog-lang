@@ -654,6 +654,13 @@ fn functionCall(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
                 debug.print("Function call done on sub-expression:\n", .{});
                 expr.*.display(true);
             }
+        } else if (self.advanceIfMatched(.Dot)) {
+            if (self.consume(.Identifier)) |field_token| {
+                expr = try ast.createAccessorExpr(allocator, expr, field_token);
+            } else {
+                self.has_error = true;
+                report.errorToken(self.peek(), "Expecting a field name after the accessor '.' operator.");
+            }
         } else {
             break;
         }

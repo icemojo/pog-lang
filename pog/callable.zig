@@ -3,6 +3,7 @@ const fmt = @import("std").fmt;
 const debug = @import("std").debug;
 const Allocator = @import("std").mem.Allocator;
 
+const Token = @import("lexer.zig").Token;
 const ast = @import("ast.zig");
 const Value = @import("value.zig").Value;
 const Interpreter = @import("interpreter.zig");
@@ -67,42 +68,44 @@ pub const PogFunction = struct {
     }
 };
 
-pub const PogStruct = struct {
-    name: []const u8,
-    declaration: ast.StructDeclareStmt,
-
-    pub fn call(self: *const PogStruct, allocator: Allocator) PogInstance {
-        _ = self;
-        _ = allocator;
-        const instance = PogInstance.init();
-        return instance;
-    }
-
-    pub fn display(self: *const PogStruct) void {
-        _ = self;
-        debug.print("<struct >", .{});
-    }
-};
-
-pub const PogInstance = struct {
-    //pog_struct: *const PogStruct,
-    //name: Token,
-    name: []u8,
+pub const PogObject = struct {
+    identifier: Token,
     fields: std.StringHashMap(Value),
 
-    pub fn init(allocator: Allocator) PogInstance {
-        const instance: PogInstance = .{
+    pub fn init(allocator: Allocator, identifier: Token) PogObject {
+        return .{
+            .identifier = identifier,
             .fields = .init(allocator),
         };
-        return instance;
     }
 
-    pub fn deinit(self: *const PogInstance) void {
+    pub fn deinit(self: *const PogObject) void {
         self.fields.deinit();
     }
 
-    pub fn toString(self: PogInstance) void {
-        debug.print("{s} instance", .{ self.pog_struct.name });
+    pub fn getFieldValue(self: *const PogObject, name: []const u8) ?Value {
+        if (self.fields.get(name)) |value| {
+            return value;
+        } else {
+            return null;
+        }
+    }
+
+    pub fn display(self: *const PogObject) void {
+        if (self.identifier.lexeme) |name| {
+            debug.print("{s} instance", .{ name });
+        } else {
+            debug.print("- instance", .{});
+        }
+    }
+
+    pub fn toString(self: *const PogObject, allocator: Allocator) []const u8 {
+        if (self.identifier.lexeme) |name| {
+            return std.fmt.allocPrint(allocator, "{s} instance", .{ name })
+                catch "- instance";
+        } else {
+            return "- instance";
+        }
     }
 };
 

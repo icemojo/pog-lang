@@ -466,6 +466,35 @@ fn evaluate(
 
             return func_eval_result;
         },
+
+        .accessor => |accessor| {
+            const obj_eval_result = self.evaluate(allocator, accessor.object);
+            if (obj_eval_result.isErrorReturn()) {
+                return obj_eval_result;
+            }
+
+            const obj_value = obj_eval_result.getExprOrFuncReturnValue();
+            const obj_instance = obj: switch (obj_value) {
+                .object => |it| break :obj it,
+                else => {
+                    report.runtimeError("Unable to access fields from a non-object type valuaes.");
+                    return .{ .error_return = true };
+                },
+            };
+
+            if (accessor.field.lexeme) |field_name| {
+                if (obj_instance.getFieldValue(field_name)) |value| {
+                    return .{ .expr_value = value };
+                } else {
+                    report.runtimeErrorAlloc(allocator, 
+                        "Undefined field name '{s}'.", .{ field_name });
+                    return .{ .error_return = true };
+                }
+            } else {
+                report.errorToken(accessor.field, "Invalid field name.");
+                return .{ .error_return = true };
+            }
+        },
     }
 }
 
