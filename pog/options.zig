@@ -2,14 +2,28 @@ const std = @import("std");
 const debug = @import("std").debug;
 const Allocator = @import("std").mem.Allocator;
 
+pub const version = 0.1;
+
 pub const CmdOptions = struct {
     verbose: bool,
+    show_version: bool,
     show_help: bool,
     show_tokens: bool,
     debug_parser: bool,
     debug_ast: bool,
     show_env: bool,
     input_file_path: ?[]u8,
+
+    const default: CmdOptions = .{
+        .verbose = false,
+        .show_version = false,
+        .show_help = false,
+        .show_tokens = false,
+        .debug_parser = false,
+        .debug_ast = false,
+        .show_env = false,
+        .input_file_path = null,
+    };
 };
 
 pub fn parseOptions(allocator: Allocator) CmdOptions {
@@ -19,17 +33,12 @@ pub fn parseOptions(allocator: Allocator) CmdOptions {
     const args = std.process.argsAlloc(allocator) catch unreachable;
     defer std.process.argsFree(allocator, args);
 
-    var options = CmdOptions{
-        .verbose = false,
-        .show_help = false,
-        .show_tokens = false,
-        .debug_parser = false,
-        .debug_ast = false,
-        .show_env = false,
-        .input_file_path = null,
-    };
-
+    var options: CmdOptions = .default;
     for (args[1..]) |arg| {
+        if (eql(u8, arg, "--version")) {
+            options.show_version = true;
+            continue;
+        }
         if (eql(u8, arg, "-v") or eql(u8, arg, "--verbose")) {
             options.verbose = true;
             continue;
@@ -63,17 +72,18 @@ pub fn parseOptions(allocator: Allocator) CmdOptions {
 }
 
 pub fn displayHelp() void {
-    debug.print("Lox interpreter implementation.\n", .{});
+    debug.print("Pog language interpreter (v{d})\n", .{ version });
     debug.print("\n", .{});
 
-    debug.print("  Usage: lox [script_file] [options...]\n", .{});
+    debug.print("  Usage: pog [script_file] [options...]\n", .{});
     debug.print("\n", .{});
 
+    displayOption(null, "--version", "Display the current version of the interpreter");
     displayOption("-h", "--help",    "Display this help prompt");
     displayOption("-v", "--verbose", "Turn on the verbose mode");
     debug.print("\n", .{});
 
-    debug.print("  Trigging lox without the [script_file] argument will kick start the REPL mode.\n\n", .{});
+    debug.print("  Trigging Pog without the [script_file] argument will kick start the REPL mode.\n\n", .{});
 
     debug.print("  Debug options:\n", .{});
     displayOption("-t", "--tokenize", "Display the output of the lexer as list of tokens");
@@ -83,10 +93,12 @@ pub fn displayHelp() void {
     debug.print("\n", .{});
 }
 
-fn displayOption(short: []const u8, long: []const u8, message: []const u8) void {
-    debug.print("  {s:4},  {s:<12}  {s}\n", .{ 
-        short, long, message,
-    });
+fn displayOption(short: ?[]const u8, long: []const u8, message: []const u8) void {
+    if (short) |it| {
+        debug.print("  {s:4},  {s:<12}  {s}\n", .{ it, long, message });
+    } else {
+        debug.print("  {s:4}   {s:<12}  {s}\n", .{ "", long, message });
+    }
 }
 
 pub fn openReadFile(allocator: Allocator, input_file_path: []const u8, verbose: bool) ![]u8 {

@@ -31,6 +31,10 @@ pub fn main() void {
         options.displayHelp();
         return;
     }
+    if (cmd_options.show_version) {
+        debug.print("{d}\n", .{ options.version });
+        return;
+    }
 
     var interpreter = Interpreter.init(allocator);
     interpreter.debug_print = cmd_options.verbose;
@@ -61,8 +65,7 @@ const Repl = struct {
     fn start(self: *Repl, allocator: Allocator, cmd_options: *const options.CmdOptions) void {
         const stdin = std.io.getStdIn().reader();
 
-        debug.print("Lox interpreter implementation.\n", .{});
-        debug.print("(Use -h to print out the available options)\n", .{});
+        debug.print("Pog language interpreter (v{d})\n", .{ options.version });
         if (cmd_options.verbose) {
             debug.print("(Verbose mode -v turned on.)\n", .{});
         }
