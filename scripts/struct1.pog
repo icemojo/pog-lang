@@ -15,8 +15,7 @@ person := {
 	name: "Ye Mon Aung",
 	age: 34,
 	score: 1024,
-	//display: () {
-	//  NOTE(yemon): Not a member, but more of a bound anonymous function.
+	//display: () { //NOTE(yemon): Not a member, but more of a bound anonymous function.
 	//	print "Well, hello there, " + name + ", with the age of " + age + "!";
 	//	print "Your current score is " + score;
 	//},

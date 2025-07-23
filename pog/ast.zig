@@ -365,6 +365,7 @@ pub const Stmt = union(enum) {
     loop_stmt: LoopStmt,
     variable_declare_stmt: VariableDeclareStmt,
     func_declare_stmt: FunctionDeclareStmt,
+    obj_declare_stmt: ObjectDeclareStmt,
     return_stmt: ReturnStmt,
 
     pub fn display(self: Stmt, indents: u32) void {
@@ -393,6 +394,9 @@ pub const Stmt = union(enum) {
             },
             .func_declare_stmt => |func_declare| {
                 func_declare.display(indents);
+            },
+            .obj_declare_stmt => |obj_declare| {
+                obj_declare.display();
             },
             .return_stmt => |return_stmt| {
                 return_stmt.display();
@@ -598,7 +602,7 @@ pub const FunctionDeclareStmt = struct {
         assert(self.name.lexeme != null);
         const name = self.name.lexeme.?;
 
-        debug.print("fun {s}(", .{ name });
+        debug.print("{s} :: (", .{ name });
         if (self.params) |params| {
             for (params.items) |param| {
                 if (param.lexeme) |lexeme| {
@@ -633,6 +637,40 @@ pub fn createFunctionDeclareStmt(
     };
     return stmt;
 }
+
+pub const ObjectDeclareStmt = struct {
+    identifier: Token,
+    fields: std.ArrayList(Field),
+
+    const Field = struct {
+        name: Token,
+        expr: *Expr,
+    };
+
+    pub fn init(allocator: Allocator, identifier: Token) ObjectDeclareStmt {
+        return .{
+            .identifier = identifier,
+            .fields = .init(allocator),
+        };
+    }
+
+    pub fn deinit(self: ObjectDeclareStmt) void {
+        self.fields.deinit();
+    }
+
+    fn display(self: *const ObjectDeclareStmt) void {
+        const name = if (self.identifier.lexeme) |name| name else "-";
+
+        debug.print("{s} := {{\n", .{ name });
+        for (self.fields.items) |field| {
+            const field_name = if (field.name.lexeme) |field_name| field_name else "-";
+            debug.print("\t{s}: ", .{ field_name });
+            field.expr.display(false);
+            debug.print(",\n", .{});
+        }
+        debug.print("}}\n", .{});
+    }
+};
 
 const ReturnStmt = struct {
     keyword: Token,

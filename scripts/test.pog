@@ -8,6 +8,8 @@ greet :: (name, count) {
 }
 
 greet("Ye Mon", count);
-count := 32;
+print "count after greet(): " + count;
 
-print "final count is " + count;
+count := 32;
+print "final count is now " + count;
+

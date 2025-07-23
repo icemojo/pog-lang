@@ -32,6 +32,7 @@ pub const TokenType = enum {
     GreaterEqual,
     Less,
     LessEqual,
+    Colon,
     ColonColon,
     ColonEqual,
 
@@ -248,26 +249,16 @@ pub const Scanner = struct {
                 ':' => {
                     var token_type: TokenType = undefined;
                     var lexeme: []const u8 = undefined;
-                    if (self.peek()) |next_ch| {
-                        switch (next_ch) {
-                            ':' => {
-                                token_type = .ColonColon;
-                                lexeme = "::";
-                            },
-                            '=' => {
-                                token_type = .ColonEqual;
-                                lexeme = ":=";
-                            },
-                            else => {
-                                token_type = .Invalid;
-                                lexeme = "";
-                            }
-                        }
+                    if (self.advanceIfMatched(':')) {
+                        token_type = .ColonColon;
+                        lexeme = "::";
+                    } else if (self.advanceIfMatched('=')) {
+                        token_type = .ColonEqual;
+                        lexeme = ":=";
                     } else {
-                        token_type = .Invalid;
-                        lexeme = "";
+                        token_type = .Colon;
+                        lexeme = ":";
                     }
-                    _ = self.advance();
                     self.addLexemeToken(token_type, lexeme);
                 },
 

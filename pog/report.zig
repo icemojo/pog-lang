@@ -6,10 +6,17 @@ const log = std.log;
 const Token = @import("lexer.zig").Token;
 
 // TODO(yemon): Maybe add a column position to the error report as well...
-pub fn errorToken(token: Token, message: []const u8) void {
+pub fn errorToken(token: Token, comptime message: []const u8) void {
     debug.print("[ERR] Line {} token '{s}': {s}\n", .{ 
         token.line, token.toString(), message 
     });
+}
+
+pub fn errorTokenAlloc(allocator: Allocator, token: Token, comptime message: []const u8, args: anytype) void {
+    const msg = std.fmt.allocPrint(allocator, message, args)
+        catch "Runtime error occured";
+    defer allocator.free(msg);
+    debug.print("[ERR] Line {}: {s}\n", .{ token.line, msg });
 }
 
 // TODO(yemon): Do I need the token (and also column position) as well?

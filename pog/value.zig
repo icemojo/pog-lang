@@ -2,9 +2,8 @@ const std = @import("std");
 const debug = @import("std").debug;
 const Allocator = @import("std").mem.Allocator;
 
-const callable = @import("callable.zig");
-const PogFunction = callable.PogFunction;
-const PogObject = callable.PogObject;
+const Token = @import("lexer.zig").Token;
+const PogFunction = @import("callable.zig").PogFunction;
 
 pub const ArithmeticOp = enum {
     substract,
@@ -323,6 +322,52 @@ pub const Value = union(enum) {
 
     pub fn getTypeName(self: Value) []const u8 {
         return @tagName(self);
+    }
+};
+
+pub const PogObject = struct {
+    identifier: Token,
+    fields: std.StringHashMap(Value),
+
+    pub fn init(allocator: Allocator, identifier: Token) PogObject {
+        return .{
+            .identifier = identifier,
+            .fields = .init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *const PogObject) void {
+        self.fields.deinit();
+    }
+
+    pub fn getFieldValue(self: *const PogObject, name: []const u8) ?Value {
+        if (self.fields.get(name)) |value| {
+            return value;
+        } else {
+            return null;
+        }
+    }
+
+    pub fn setFieldValue(self: *PogObject, name: []const u8, value: Value) bool {
+        self.fields.put(name, value) catch return false;
+        return true;
+    }
+
+    pub fn display(self: *const PogObject) void {
+        if (self.identifier.lexeme) |name| {
+            debug.print("{s} instance", .{ name });
+        } else {
+            debug.print("- instance", .{});
+        }
+    }
+
+    pub fn toString(self: *const PogObject, allocator: Allocator) []const u8 {
+        if (self.identifier.lexeme) |name| {
+            return std.fmt.allocPrint(allocator, "{s} instance", .{ name })
+                catch "- instance";
+        } else {
+            return "- instance";
+        }
     }
 };
 

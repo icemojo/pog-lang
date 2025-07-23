@@ -6,8 +6,9 @@ const Allocator = @import("std").mem.Allocator;
 const report = @import("report.zig");
 const ast = @import("ast.zig");
 const Value = @import("value.zig").Value;
-const Environment = @import("env.zig");
+const PogObject = @import("value.zig").PogObject;
 const PogFunction = @import("callable.zig").PogFunction;
+const Environment = @import("env.zig");
 
 fn concatStrings(allocator: Allocator, string1: []u8, string2: []u8) Value {
     const target_string = std.fmt.allocPrint(allocator, "{s}{s}", .{ string1, string2 })
@@ -268,9 +269,51 @@ fn evaluateStatement(
 
             self.debugPrint("Evaluating the function declaration statement '{s}'...\n", .{ name });
 
-            const function = PogFunction.init(func_declare_stmt);
+            const function: PogFunction = .init(func_declare_stmt);
             self.env.*.define(name, .{ .function = function }) catch {
                 report.runtimeError("Function declaration failed for unknown reason.");
+                return .{ .error_return = true };
+            };
+            return .{ .no_return = true };
+        },
+
+        .obj_declare_stmt => |obj_declare_stmt| {
+            var name: []const u8 = undefined;
+            if (obj_declare_stmt.identifier.lexeme) |lexeme| {
+                name = lexeme;
+            } else {
+                report.runtimeError("Unable to declare an object without proper identifer name.");
+                return .{ .error_return = true };
+            }
+
+            self.debugPrint("Evaluating the object declaration statement '{s}'...\n", .{ name });
+            var object: PogObject = .init(allocator, obj_declare_stmt.identifier);
+            errdefer object.deinit();
+
+            for (obj_declare_stmt.fields.items) |field| {
+                var field_name: []const u8 = undefined;
+                if (field.name.lexeme) |it| {
+                    field_name = it;
+                } else {
+                    report.runtimeError("One of the object instance fields was poorly named.");
+                    return .{ .error_return = true };
+                }
+
+                const eval_result = self.evaluate(allocator, field.expr);
+                if (eval_result.isErrorReturn()) {
+                    return .{ .error_return = true };
+                }
+
+                const field_value = eval_result.getExprOrFuncReturnValue();
+                object.fields.put(field_name, field_value) catch {
+                    report.runtimeError("Object declaration failed for unknown reason.");
+                    return .{ .error_return = true };
+                };
+            }
+
+            self.env.*.define(name, .{ .object = object }) catch {
+                report.runtimeError("Object declaration failed for unknown reason.");
+                return .{ .error_return = true };
             };
             return .{ .no_return = true };
         },
@@ -426,7 +469,7 @@ fn evaluate(
             self.debugPrint("  Evaluating variable expression '{s}'...\n", .{ name });
 
             const value = self.env.*.getValue(name) catch {
-                report.runtimeErrorAlloc(allocator, "Undefined variable '{s}'.", .{ name });
+                report.errorTokenAlloc(allocator, variable, "Undefined variable '{s}'.", .{ name });
                 return .{ .error_return = true };
             };
 
