@@ -18,7 +18,8 @@ pub const Expr = union(enum) {
     literal: LiteralExpr,
     variable: VariableExpr,
     func_call: FunctionCallExpr,
-    accessor: AccessorExpr,
+    getter: GetterExpr,
+    setter: SetterExpr,
 
     pub fn getTypeName(self: Expr) []const u8 {
         return switch (self) {
@@ -30,7 +31,8 @@ pub const Expr = union(enum) {
             .literal => "literal",
             .variable => "variable",
             .func_call => "function call",
-            .accessor => "field accessor",
+            .getter => "field getter",
+            .setter => "field setter",
         };
     }
 
@@ -64,13 +66,20 @@ pub const Expr = union(enum) {
             .func_call => |func_call| {
                 func_call.display(line_break);
             },
-            .accessor => |accessor| {
-                if (accessor.field.lexeme) |lexeme| {
+            .getter => |getter| {
+                if (getter.field.lexeme) |lexeme| {
                     debug.print("{s}", .{ lexeme });
                 } else {
                     debug.print("-", .{});
                 }
-            }
+            },
+            .setter => |setter| {
+                if (setter.name.lexeme) |lexeme| {
+                    debug.print("{s}", .{ lexeme });
+                } else {
+                    debug.print("-", .{});
+                }
+            },
         }
         if (line_break) {
             debug.print("\n", .{});
@@ -326,38 +335,16 @@ pub const FunctionCallExpr = struct {
     }
 };
 
-pub fn createFunctionCallExpr(
-    allocator: Allocator, 
-    callee: *Expr, 
-    closing_paren: Token, 
-    arguments: ?std.ArrayList(*Expr)
-) !*Expr {
-    const expr = try allocator.create(Expr);
-    expr.* = Expr{
-        .func_call = FunctionCallExpr{
-            .callee = callee,
-            .closing_paren = closing_paren,
-            .arguments = arguments,
-        },
-    };
-    return expr;
-}
-
-pub const AccessorExpr = struct {
+pub const GetterExpr = struct {
     object: *Expr,
     field: Token,
 };
 
-pub fn createAccessorExpr(allocator: Allocator, object: *Expr, field: Token) !*Expr {
-    const expr = try allocator.create(Expr);
-    expr.* = Expr{
-        .accessor = AccessorExpr{
-            .object = object,
-            .field = field,
-        },
-    };
-    return expr;
-}
+pub const SetterExpr = struct {
+    object: *Expr,
+    name: Token,
+    value: *Expr,
+};
 
 fn printIndents(indents: u32) void {
     if (indents == 0) {

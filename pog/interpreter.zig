@@ -467,8 +467,8 @@ fn evaluate(
             return func_eval_result;
         },
 
-        .accessor => |accessor| {
-            const obj_eval_result = self.evaluate(allocator, accessor.object);
+        .getter => |getter| {
+            const obj_eval_result = self.evaluate(allocator, getter.object);
             if (obj_eval_result.isErrorReturn()) {
                 return obj_eval_result;
             }
@@ -482,7 +482,7 @@ fn evaluate(
                 },
             };
 
-            if (accessor.field.lexeme) |field_name| {
+            if (getter.field.lexeme) |field_name| {
                 if (obj_instance.getFieldValue(field_name)) |value| {
                     return .{ .expr_value = value };
                 } else {
@@ -491,9 +491,46 @@ fn evaluate(
                     return .{ .error_return = true };
                 }
             } else {
-                report.errorToken(accessor.field, "Invalid field name.");
+                report.errorToken(getter.field, "Invalid field name.");
                 return .{ .error_return = true };
             }
+        },
+
+        .setter => |setter| {
+            const obj_eval_result = self.evaluate(allocator, setter.object);
+            if (obj_eval_result.isErrorReturn()) {
+                return obj_eval_result;
+            }
+
+            const obj_value = obj_eval_result.getExprOrFuncReturnValue();
+            var obj_instance = obj: switch (obj_value) {
+                .object => |it| break :obj it,
+                else => {
+                    report.runtimeError("Unable to assign field values to a non-object type value.");
+                    return .{ .error_return = true };
+                },
+            };
+
+            const assign_eval_result = self.evaluate(allocator, setter.value);
+            if (assign_eval_result.isErrorReturn()) {
+                return assign_eval_result;
+            }
+
+            const assign_value = assign_eval_result.getExprOrFuncReturnValue();
+            if (setter.name.lexeme) |name| {
+                if (!obj_instance.setFieldValue(name, assign_value)) {
+                    report.runtimeErrorAlloc(allocator, 
+                        "Unable to assign a new value to the field name '{s}' of {s}.", .{ 
+                            name, obj_instance.toString(allocator) 
+                        });
+                    return .{ .error_return = true };
+                }
+            } else {
+                report.errorToken(setter.name, "Invalid field name.");
+                return .{ .error_return = true };
+            }
+
+            return .{ .no_return = true };
         },
     }
 }

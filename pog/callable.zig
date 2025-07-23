@@ -91,6 +91,11 @@ pub const PogObject = struct {
         }
     }
 
+    pub fn setFieldValue(self: *PogObject, name: []const u8, value: Value) bool {
+        self.fields.put(name, value) catch return false;
+        return true;
+    }
+
     pub fn display(self: *const PogObject) void {
         if (self.identifier.lexeme) |name| {
             debug.print("{s} instance", .{ name });
