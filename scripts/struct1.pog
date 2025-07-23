@@ -1,5 +1,5 @@
 say_hello :: (person) {
-    print "Hello there, " + person.name + " of the age " + age;
+    print "Hello there, " + person.name + " of the age " + person.age;
     if person.score > 100 {
         print "Wow, you've done a great job!";
     } else {
