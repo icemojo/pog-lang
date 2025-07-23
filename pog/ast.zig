@@ -18,6 +18,8 @@ pub const Expr = union(enum) {
     literal: LiteralExpr,
     variable: VariableExpr,
     func_call: FunctionCallExpr,
+    getter: GetterExpr,
+    setter: SetterExpr,
 
     pub fn getTypeName(self: Expr) []const u8 {
         return switch (self) {
@@ -29,6 +31,8 @@ pub const Expr = union(enum) {
             .literal => "literal",
             .variable => "variable",
             .func_call => "function call",
+            .getter => "field getter",
+            .setter => "field setter",
         };
     }
 
@@ -61,6 +65,20 @@ pub const Expr = union(enum) {
             },
             .func_call => |func_call| {
                 func_call.display(line_break);
+            },
+            .getter => |getter| {
+                if (getter.field.lexeme) |lexeme| {
+                    debug.print("{s}", .{ lexeme });
+                } else {
+                    debug.print("-", .{});
+                }
+            },
+            .setter => |setter| {
+                if (setter.name.lexeme) |lexeme| {
+                    debug.print("{s}", .{ lexeme });
+                } else {
+                    debug.print("-", .{});
+                }
             },
         }
         if (line_break) {
@@ -317,22 +335,16 @@ pub const FunctionCallExpr = struct {
     }
 };
 
-pub fn createFunctionCallExpr(
-    allocator: Allocator, 
-    callee: *Expr, 
-    closing_paren: Token, 
-    arguments: ?std.ArrayList(*Expr)
-) !*Expr {
-    const expr = try allocator.create(Expr);
-    expr.* = Expr{
-        .func_call = FunctionCallExpr{
-            .callee = callee,
-            .closing_paren = closing_paren,
-            .arguments = arguments,
-        },
-    };
-    return expr;
-}
+pub const GetterExpr = struct {
+    object: *Expr,
+    field: Token,
+};
+
+pub const SetterExpr = struct {
+    object: *Expr,
+    name: Token,
+    value: *Expr,
+};
 
 fn printIndents(indents: u32) void {
     if (indents == 0) {
@@ -353,6 +365,7 @@ pub const Stmt = union(enum) {
     loop_stmt: LoopStmt,
     variable_declare_stmt: VariableDeclareStmt,
     func_declare_stmt: FunctionDeclareStmt,
+    obj_declare_stmt: ObjectDeclareStmt,
     return_stmt: ReturnStmt,
 
     pub fn display(self: Stmt, indents: u32) void {
@@ -381,6 +394,9 @@ pub const Stmt = union(enum) {
             },
             .func_declare_stmt => |func_declare| {
                 func_declare.display(indents);
+            },
+            .obj_declare_stmt => |obj_declare| {
+                obj_declare.display();
             },
             .return_stmt => |return_stmt| {
                 return_stmt.display();
@@ -586,7 +602,7 @@ pub const FunctionDeclareStmt = struct {
         assert(self.name.lexeme != null);
         const name = self.name.lexeme.?;
 
-        debug.print("fun {s}(", .{ name });
+        debug.print("{s} :: (", .{ name });
         if (self.params) |params| {
             for (params.items) |param| {
                 if (param.lexeme) |lexeme| {
@@ -621,6 +637,40 @@ pub fn createFunctionDeclareStmt(
     };
     return stmt;
 }
+
+pub const ObjectDeclareStmt = struct {
+    identifier: Token,
+    fields: std.ArrayList(Field),
+
+    const Field = struct {
+        name: Token,
+        expr: *Expr,
+    };
+
+    pub fn init(allocator: Allocator, identifier: Token) ObjectDeclareStmt {
+        return .{
+            .identifier = identifier,
+            .fields = .init(allocator),
+        };
+    }
+
+    pub fn deinit(self: ObjectDeclareStmt) void {
+        self.fields.deinit();
+    }
+
+    fn display(self: *const ObjectDeclareStmt) void {
+        const name = if (self.identifier.lexeme) |name| name else "-";
+
+        debug.print("{s} := {{\n", .{ name });
+        for (self.fields.items) |field| {
+            const field_name = if (field.name.lexeme) |field_name| field_name else "-";
+            debug.print("\t{s}: ", .{ field_name });
+            field.expr.display(false);
+            debug.print(",\n", .{});
+        }
+        debug.print("}}\n", .{});
+    }
+};
 
 const ReturnStmt = struct {
     keyword: Token,

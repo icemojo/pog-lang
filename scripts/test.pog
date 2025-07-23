@@ -1,0 +1,15 @@
+count := 12;
+print "count: " + count;
+
+greet :: (name, count) {
+  for i := 0; i < count; i = i+1; {
+    print "" + i + ") saying hello to " + name + "!";
+  }
+}
+
+greet("Ye Mon", count);
+print "count after greet(): " + count;
+
+count := 32;
+print "final count is now " + count;
+

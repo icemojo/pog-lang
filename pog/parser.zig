@@ -1,13 +1,12 @@
-const std       = @import("std");
-const fmt       = @import("std").fmt;
-const debug     = @import("std").debug;
+const std = @import("std");
+const debug = @import("std").debug;
 const Allocator = @import("std").mem.Allocator;
 
-const lexer     = @import("lexer.zig");
-const Token     = @import("lexer.zig").Token;
+const lexer = @import("lexer.zig");
+const Token = @import("lexer.zig").Token;
 const TokenType = @import("lexer.zig").TokenType;
-const ast       = @import("ast.zig");
-const report    = @import("report.zig");
+const ast = @import("ast.zig");
+const report = @import("report.zig");
 const ArithmeticOp = @import("value.zig").ArithmeticOp;
 
 // NOTE(yemon): Inferred error sets are not compatible with
@@ -17,6 +16,7 @@ const ParserError = error {
     UnknownPrimaryToken,
     InvalidStringComposition,
     InvalidFunctionComposition,
+    InvalidObjectComposition,
     InvalidBranchComposition,
     InvalidLoopComposition,
     InvalidBlockComposition,
@@ -112,13 +112,86 @@ fn declaration(self: *Self, allocator: Allocator) ParserError!*ast.Stmt {
         } else if (next_token.token_type == .ColonEqual) {
             _ = self.advance();
             _ = self.advance();
-            return try self.variableDeclareStmt(allocator, identifier);
+            if (self.check(.LeftBrace)) {
+                return try self.objectDeclareStmt(allocator, identifier);
+            } else {
+                return try self.variableDeclareStmt(allocator, identifier);
+            }
         } else {
-            return try self.statement(allocator);
+            report.errorToken(identifier, "Invalid delcaration type following an identifier.");
+            return ParserError.InvalidIdentifierDeclaration;
         }
     } else {
         return try self.statement(allocator);
     }
+}
+
+fn objectDeclareStmt(self: *Self, allocator: Allocator, identifier: Token) ParserError!*ast.Stmt {
+    self.debugPrint("Seems like an object declare statement...\n", .{});
+
+    if (self.consume(.LeftBrace) == null) {
+        self.has_error = true;
+        report.errorToken(self.peek(), "Expect '{' at the start of the object declaration.");
+        return ParserError.InvalidObjectComposition;
+    }
+    if (self.check(.RightBrace)) {
+        self.has_error = true;
+        report.errorToken(identifier, "An object instance declaration cannot be empty.");
+        return ParserError.InvalidObjectComposition;
+    }
+
+    var obj_declare_stmt: ast.ObjectDeclareStmt = .init(allocator, identifier);
+    errdefer obj_declare_stmt.deinit();
+
+    while (!self.check(.RightBrace)) {
+        const field_name = self.advance().?;
+        if (field_name.token_type != .Identifier) {
+            report.errorToken(field_name, "Field name has to be a valid identifier.");
+            return ParserError.InvalidObjectComposition;
+        }
+
+        const colon = self.advance().?;
+        if (colon.token_type != .Colon) {
+            report.errorToken(field_name, "Invalid field specifier after the field name. Should be a ':'.");
+            return ParserError.InvalidObjectComposition;
+        }
+
+        const field_value = try self.expression(allocator);
+        obj_declare_stmt.fields.append(.{
+            .name = field_name,
+            .expr = field_value,
+        }) catch {
+            report.runtimeError("Unable to parse one of the object fields.");
+            return ParserError.InvalidObjectComposition;
+        };
+
+        if (self.advanceIfMatched(.Comma)) {
+            continue;
+        } else {
+            report.runtimeError("Object fields has to be separated with ','.");
+            return ParserError.InvalidObjectComposition;
+        }
+    }
+
+    if (self.consume(.RightBrace) == null) {
+        self.has_error = true;
+        report.errorToken(self.peek(), "Expect '}' at the end of the object declaration.");
+        return ParserError.InvalidObjectComposition;
+    }
+    if (self.consume(.Semicolon) == null) {
+        self.has_error = true;
+        report.errorToken(self.peek(), "Expect an EOL terminator ';' after the object declaration.");
+        return ParserError.InvalidObjectComposition;
+    }
+
+    const stmt = try allocator.create(ast.Stmt);
+    stmt.* = .{
+        .obj_declare_stmt = obj_declare_stmt,
+    };
+    self.debugPrint("Object declaration parsed with {} fields.\n", .{
+        obj_declare_stmt.fields.items.len
+    });
+    return stmt;
 }
 
 fn variableDeclareStmt(self: *Self, allocator: Allocator, identifier: Token) ParserError!*ast.Stmt {
@@ -442,7 +515,6 @@ fn expression(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
             self.debugPrint("Expression done with assignment. ", .{});
             expr.*.display(true);
         }
-
         return expr;
     } else |err| {
         self.has_error = true;
@@ -469,6 +541,17 @@ fn assignment(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
                 }
                 
                 return assign_expr;
+            },
+            .getter => |getter| {
+                const setter_expr = try allocator.create(ast.Expr);
+                setter_expr.* = .{
+                    .setter = .{
+                        .object = getter.object,
+                        .name = getter.field,
+                        .value = value,
+                    },
+                };
+                return setter_expr;
             },
             else => {
                 self.has_error = true;
@@ -590,7 +673,7 @@ fn term(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
     } 
 
     if (self.debug_print) {
-        debug.print("Terminal done. ", .{});
+debug.print("Terminal done. ", .{});
         expr.*.display(true);
     }
 
@@ -633,7 +716,7 @@ fn unary(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
         return expr;
     }
 
-    const func = try self.functionCall(allocator);
+    const func = try self.call(allocator);
 
     if (self.debug_print) {
         debug.print("Unary done with function call.\n", .{});
@@ -641,7 +724,7 @@ fn unary(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
     return func;
 }
 
-fn functionCall(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
+fn call(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
     var expr = try self.primary(allocator);
 
     while (true) {
@@ -653,6 +736,20 @@ fn functionCall(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
             if (self.debug_print) {
                 debug.print("Function call done on sub-expression:\n", .{});
                 expr.*.display(true);
+            }
+        } else if (self.advanceIfMatched(.Dot)) {
+            if (self.consume(.Identifier)) |field_token| {
+                const new_expr = try allocator.create(ast.Expr);
+                new_expr.* = .{
+                    .getter = .{
+                        .object = expr,
+                        .field = field_token,
+                    },
+                };
+                expr = new_expr;
+            } else {
+                self.has_error = true;
+                report.errorToken(self.peek(), "Expecting a field name after the accessor '.' operator.");
             }
         } else {
             break;
@@ -688,7 +785,7 @@ fn finishFunctionCall(self: *Self, allocator: Allocator, callee: *ast.Expr) Pars
     self.debugPrint("Parsed {} arguments.\n", .{ arguments.items.len });
 
     // NOTE(yemon): Closing paren token is marked just for error reporting if needed
-    var closing_paren: Token =  undefined;
+    var closing_paren: Token = undefined;
     if (self.consume(.RightParen)) |it| {
         closing_paren = it;
     } else {
@@ -697,7 +794,15 @@ fn finishFunctionCall(self: *Self, allocator: Allocator, callee: *ast.Expr) Pars
     }
 
     self.debugPrint("Function call done.\n", .{});
-    return ast.createFunctionCallExpr(allocator, callee, closing_paren, arguments);
+    const func_call_expr = try allocator.create(ast.Expr);
+    func_call_expr.* = .{
+        .func_call = .{
+            .callee = callee,
+            .closing_paren = closing_paren,
+            .arguments = arguments,
+        },
+    };
+    return func_call_expr;
 }
 
 fn primary(self: *Self, allocator: Allocator) ParserError!*ast.Expr {
@@ -852,8 +957,9 @@ fn advanceIfMatchedAny(self: *Self, token_types: []const TokenType) bool {
 
 fn advance(self: *Self) ?Token {
     if (!self.isEnd()) {
+        const current_token = self.tokens.*.items[self.current];
         self.current += 1;
-        return self.tokens.*.items[self.current];
+        return current_token;
     } else {
         return null;
     }

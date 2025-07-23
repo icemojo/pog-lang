@@ -1,0 +1,16 @@
+print "Hello there!";
+age := 34;
+counter := 26;
+
+if age <= counter {
+    print "You are already there!";
+} else {
+    print "From...";
+    for ; counter <= age;; {
+        print counter;
+        counter = counter + 1;
+    }
+    print "...to...";
+    print age;
+    print "We're there now!";
+}

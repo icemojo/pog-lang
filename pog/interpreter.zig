@@ -6,8 +6,9 @@ const Allocator = @import("std").mem.Allocator;
 const report = @import("report.zig");
 const ast = @import("ast.zig");
 const Value = @import("value.zig").Value;
+const PogObject = @import("value.zig").PogObject;
+const PogFunction = @import("callable.zig").PogFunction;
 const Environment = @import("env.zig");
-const LoxFunction = @import("lox_callable.zig").LoxFunction;
 
 fn concatStrings(allocator: Allocator, string1: []u8, string2: []u8) Value {
     const target_string = std.fmt.allocPrint(allocator, "{s}{s}", .{ string1, string2 })
@@ -55,7 +56,7 @@ fn initBuiltins(self: *Self, allocator: Allocator) !void {
     // const clock_func = LoxCallable().init(allocator, "clock");
     // try self.global_env.define("clock", clock_func);
 
-    const test_name: []u8 = @constCast("test.lox");
+    const test_name: []u8 = @constCast("test.pog");
     try self.global_env.*.define("__name__", Value{ .string = test_name });
 }
 
@@ -268,9 +269,51 @@ fn evaluateStatement(
 
             self.debugPrint("Evaluating the function declaration statement '{s}'...\n", .{ name });
 
-            const function = LoxFunction.init(func_declare_stmt);
+            const function: PogFunction = .init(func_declare_stmt);
             self.env.*.define(name, .{ .function = function }) catch {
                 report.runtimeError("Function declaration failed for unknown reason.");
+                return .{ .error_return = true };
+            };
+            return .{ .no_return = true };
+        },
+
+        .obj_declare_stmt => |obj_declare_stmt| {
+            var name: []const u8 = undefined;
+            if (obj_declare_stmt.identifier.lexeme) |lexeme| {
+                name = lexeme;
+            } else {
+                report.runtimeError("Unable to declare an object without proper identifer name.");
+                return .{ .error_return = true };
+            }
+
+            self.debugPrint("Evaluating the object declaration statement '{s}'...\n", .{ name });
+            var object: PogObject = .init(allocator, obj_declare_stmt.identifier);
+            errdefer object.deinit();
+
+            for (obj_declare_stmt.fields.items) |field| {
+                var field_name: []const u8 = undefined;
+                if (field.name.lexeme) |it| {
+                    field_name = it;
+                } else {
+                    report.runtimeError("One of the object instance fields was poorly named.");
+                    return .{ .error_return = true };
+                }
+
+                const eval_result = self.evaluate(allocator, field.expr);
+                if (eval_result.isErrorReturn()) {
+                    return .{ .error_return = true };
+                }
+
+                const field_value = eval_result.getExprOrFuncReturnValue();
+                object.fields.put(field_name, field_value) catch {
+                    report.runtimeError("Object declaration failed for unknown reason.");
+                    return .{ .error_return = true };
+                };
+            }
+
+            self.env.*.define(name, .{ .object = object }) catch {
+                report.runtimeError("Object declaration failed for unknown reason.");
+                return .{ .error_return = true };
             };
             return .{ .no_return = true };
         },
@@ -426,7 +469,7 @@ fn evaluate(
             self.debugPrint("  Evaluating variable expression '{s}'...\n", .{ name });
 
             const value = self.env.*.getValue(name) catch {
-                report.runtimeErrorAlloc(allocator, "Undefined variable '{s}'.", .{ name });
+                report.errorTokenAlloc(allocator, variable, "Undefined variable '{s}'.", .{ name });
                 return .{ .error_return = true };
             };
 
@@ -465,6 +508,72 @@ fn evaluate(
             self.debugPrint("  func_eval_result: {s}\n", .{ @tagName(func_eval_result) });
 
             return func_eval_result;
+        },
+
+        .getter => |getter| {
+            const obj_eval_result = self.evaluate(allocator, getter.object);
+            if (obj_eval_result.isErrorReturn()) {
+                return obj_eval_result;
+            }
+
+            const obj_value = obj_eval_result.getExprOrFuncReturnValue();
+            const obj_instance = obj: switch (obj_value) {
+                .object => |it| break :obj it,
+                else => {
+                    report.runtimeError("Unable to access fields from a non-object type valuaes.");
+                    return .{ .error_return = true };
+                },
+            };
+
+            if (getter.field.lexeme) |field_name| {
+                if (obj_instance.getFieldValue(field_name)) |value| {
+                    return .{ .expr_value = value };
+                } else {
+                    report.runtimeErrorAlloc(allocator, 
+                        "Undefined field name '{s}'.", .{ field_name });
+                    return .{ .error_return = true };
+                }
+            } else {
+                report.errorToken(getter.field, "Invalid field name.");
+                return .{ .error_return = true };
+            }
+        },
+
+        .setter => |setter| {
+            const obj_eval_result = self.evaluate(allocator, setter.object);
+            if (obj_eval_result.isErrorReturn()) {
+                return obj_eval_result;
+            }
+
+            const obj_value = obj_eval_result.getExprOrFuncReturnValue();
+            var obj_instance = obj: switch (obj_value) {
+                .object => |it| break :obj it,
+                else => {
+                    report.runtimeError("Unable to assign field values to a non-object type value.");
+                    return .{ .error_return = true };
+                },
+            };
+
+            const assign_eval_result = self.evaluate(allocator, setter.value);
+            if (assign_eval_result.isErrorReturn()) {
+                return assign_eval_result;
+            }
+
+            const assign_value = assign_eval_result.getExprOrFuncReturnValue();
+            if (setter.name.lexeme) |name| {
+                if (!obj_instance.setFieldValue(name, assign_value)) {
+                    report.runtimeErrorAlloc(allocator, 
+                        "Unable to assign a new value to the field name '{s}' of {s}.", .{ 
+                            name, obj_instance.toString(allocator) 
+                        });
+                    return .{ .error_return = true };
+                }
+            } else {
+                report.errorToken(setter.name, "Invalid field name.");
+                return .{ .error_return = true };
+            }
+
+            return .{ .no_return = true };
         },
     }
 }

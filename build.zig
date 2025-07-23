@@ -4,6 +4,10 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    buildPog(b, target, optimize);
+}
+
+fn buildPog(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) void {
     const pog_exe = b.addExecutable(.{
         .name = "pog",
         .root_module = b.createModule(.{
@@ -14,6 +18,16 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(pog_exe);
 
+    const pog_run_cmd = b.addRunArtifact(pog_exe);
+    pog_run_cmd.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        pog_run_cmd.addArgs(args);
+    }
+    const pog_run_step = b.step("pog", "Run the Pog language interpreter (Use -h to view more options)");
+    pog_run_step.dependOn(&pog_run_cmd.step);
+}
+
+fn buildOg(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) void {
     const og_exe = b.addExecutable(.{
         .name = "og",
         .root_module = b.createModule(.{
@@ -24,14 +38,6 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(og_exe);
 
-    const pog_run_cmd = b.addRunArtifact(pog_exe);
-    pog_run_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        pog_run_cmd.addArgs(args);
-    }
-    const pog_run_step = b.step("pog", "Run the Pog language interpreter (Use -h to view more options)");
-    pog_run_step.dependOn(&pog_run_cmd.step);
-
     const og_run_cmd = b.addRunArtifact(og_exe);
     og_run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| {
@@ -40,3 +46,4 @@ pub fn build(b: *std.Build) void {
     const og_run_step = b.step("og", "Run the Og bytecode VM (Use -h to view more options)");
     og_run_step.dependOn(&og_run_cmd.step);
 }
+

@@ -2,7 +2,8 @@ const std = @import("std");
 const debug = @import("std").debug;
 const Allocator = @import("std").mem.Allocator;
 
-const LoxFunction = @import("lox_callable.zig").LoxFunction;
+const Token = @import("lexer.zig").Token;
+const PogFunction = @import("callable.zig").PogFunction;
 
 pub const ArithmeticOp = enum {
     substract,
@@ -48,8 +49,8 @@ pub const Value = union(enum) {
     string: []u8,
     boolean: bool,
     nil: bool,
-    function: LoxFunction,
-    // object: ??
+    function: PogFunction,
+    object: PogObject,
 
     pub fn isTruthy(self: Value) bool {
         switch (self) {
@@ -97,6 +98,9 @@ pub const Value = union(enum) {
                 }
             },
             .function => {
+                return ValueError.InvalidValueComparison;
+            },
+            .object => {
                 return ValueError.InvalidValueComparison;
             },
         }
@@ -284,6 +288,9 @@ pub const Value = union(enum) {
             .function => |it| {
                 return it.toString(allocator);
             },
+            .object => |it| {
+                return it.toString(allocator);
+            },
         }
     }
 
@@ -307,17 +314,60 @@ pub const Value = union(enum) {
             .function => |it| {
                 it.display();
             },
+            .object => |it| {
+                it.display();
+            },
         }
     }
 
     pub fn getTypeName(self: Value) []const u8 {
-        return switch (self) {
-            .integer => "integer",
-            .double => "double",
-            .string => "string",
-            .boolean => "boolean",
-            .nil => "nil",
-            .function => "function",
-        };
+        return @tagName(self);
     }
 };
+
+pub const PogObject = struct {
+    identifier: Token,
+    fields: std.StringHashMap(Value),
+
+    pub fn init(allocator: Allocator, identifier: Token) PogObject {
+        return .{
+            .identifier = identifier,
+            .fields = .init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *const PogObject) void {
+        self.fields.deinit();
+    }
+
+    pub fn getFieldValue(self: *const PogObject, name: []const u8) ?Value {
+        if (self.fields.get(name)) |value| {
+            return value;
+        } else {
+            return null;
+        }
+    }
+
+    pub fn setFieldValue(self: *PogObject, name: []const u8, value: Value) bool {
+        self.fields.put(name, value) catch return false;
+        return true;
+    }
+
+    pub fn display(self: *const PogObject) void {
+        if (self.identifier.lexeme) |name| {
+            debug.print("{s} instance", .{ name });
+        } else {
+            debug.print("- instance", .{});
+        }
+    }
+
+    pub fn toString(self: *const PogObject, allocator: Allocator) []const u8 {
+        if (self.identifier.lexeme) |name| {
+            return std.fmt.allocPrint(allocator, "{s} instance", .{ name })
+                catch "- instance";
+        } else {
+            return "- instance";
+        }
+    }
+};
+

@@ -1,0 +1,23 @@
+say_hello :: (age) {
+	if age < 30 {
+		if age < 18 {
+			print "You're too young to die. Get outta here...";
+			return -1;
+
+			print "Blah!!";
+		}
+
+		print "You're not cut out for this club.";
+		return -2;
+	}
+
+	print "Welcome! name your poison.";
+	return -3;
+
+	return "Psyked!!";
+}
+
+age := 17;
+res := say_hello(age);
+print "Verbatum is " + res;    // -1
+
